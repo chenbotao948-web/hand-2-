@@ -7,7 +7,7 @@
 extern volatile float pid_kp;
 extern volatile float pid_ki;
 extern volatile float pid_kd;
-extern volatile float pid_base_forward_us;
+extern volatile float pid_base_speed_us;
 
 void PID_Init(void);
 void PID_Start(void);

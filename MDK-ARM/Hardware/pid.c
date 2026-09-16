@@ -6,7 +6,7 @@
 	 * 第一版循迹参数，适用于固定 20ms 控制周期。
 	 * 调参顺序：先只调 Kp，再增加 Kd，最后确有需要时再增加 Ki。
 	 */
-	volatile float pid_kp = 20.0f;
+	volatile float pid_kp = 40.0f;
 	volatile float pid_ki = 0.0f;
 	volatile float pid_kd = 0.0f;
 	volatile float pid_base_speed_us = 80.0f;
