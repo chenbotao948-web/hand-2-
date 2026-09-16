@@ -17,10 +17,9 @@ static uint8_t rx_byte;                        /* 当前收到的 1 字节 */
 static char rx_buffer[UART_RX_BUFFER_SIZE];    /* 一行命令的缓存 */
 static uint16_t rx_index = 0;                  /* rx_buffer 当前写入位置 */
 static volatile uint8_t rx_line_ready = 0;     /* 1 表示有一条完整命令等待主循环处理 */
-static uint8_t rx_discard_line = 0;            /* 1 表示丢弃当前行，直到收到换行 */
 
 static void UART_StartReceive(void);
-static void UART_ProcessLine(char *line);
+static void UART_ProcessLine(char *line);//程序对比表格
 
 /**
   * @brief  串口初始化，启动第一次中断接收
@@ -29,10 +28,9 @@ static void UART_ProcessLine(char *line);
   */
 void UART_Init(void)
 {
-    rx_index = 0;
+    rx_index = 0;//数组位置为零
     rx_line_ready = 0;
-    rx_discard_line = 0;
-    UART_StartReceive();
+    UART_StartReceive();//接收中断开启
 }
 
 /**
@@ -74,48 +72,40 @@ void UART_Task(void)
 /**
   * @brief  串口接收完成回调，每收到 1 字节进一次
   * @param  huart: 触发回调的串口句柄
-  * @note   收到 '\n' 表示一行结束，只通知主循环处理。
-  *         '\r' 直接忽略，兼容 "\r\n" 结尾。
-  *         命令未处理完或长度超过缓冲区时，整行丢弃到下一个 '\n'。
+  * @note   做法 A：
+  *         - 上一条命令还没被主循环处理完时，当前字节直接丢弃；
+  *         - 收到 '\n' 表示一行结束，通知主循环处理；
+  *         - '\r' 直接忽略，兼容 "\r\n" 结尾。
+  *         代价：发太快时可能丢命令，也可能出现半行，
+  *         适合手动一条条发送、发一条等一条的场景。
   */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART1)
     {
-        char ch = (char)rx_byte;
-
-        if (ch == '\n')
+        /* 上一条还没处理完，当前字节直接丢弃 */
+        if (rx_line_ready != 0)
         {
-            if (rx_discard_line != 0)
-            {
-                /* 丢弃行结束，下一字节可作为新命令的开头 */
-                rx_discard_line = 0;
-                rx_index = 0;
-            }
-            else if ((rx_line_ready == 0) && (rx_index > 0))
+            UART_StartReceive();
+            return;
+        }
+
+        if (rx_byte == '\n')//遇到串口通信结尾
+        {
+            if (rx_index > 0)
             {
                 rx_buffer[rx_index] = '\0';
                 rx_line_ready = 1;
                 rx_index = 0;
             }
         }
-        else if (ch != '\r')
+        else if (rx_byte != '\r')
         {
-            if ((rx_line_ready != 0) || (rx_discard_line != 0))
+            if (rx_index < (UART_RX_BUFFER_SIZE - 1))
             {
-                /* 上一条命令未处理完，当前新行必须完整丢弃 */
-                rx_discard_line = 1;
+                rx_buffer[rx_index++] = rx_byte;
             }
-            else if (rx_index < (UART_RX_BUFFER_SIZE - 1))
-            {
-                rx_buffer[rx_index++] = ch;
-            }
-            else
-            {
-                /* 当前行过长，清除残片并丢弃到换行 */
-                rx_index = 0;
-                rx_discard_line = 1;
-            }
+            /* 缓冲区满，静默丢弃后续字符，等 '\n' 封口 */
         }
 
         /* 无论哪种情况，都要重新开启下一次接收 */
@@ -125,16 +115,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 /**
   * @brief  串口接收错误恢复
-  * @note   ORE 会终止 HAL 的中断接收。丢弃当前受损行并重新启动接收，
+  * @note   ORE 会终止 HAL 的中断接收。清空当前行并重新启动接收，
   *         收到下一个 '\n' 后恢复正常命令边界；中断内不发送错误信息。
   */
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     if ((huart->Instance == USART1) &&
-        ((huart->ErrorCode & HAL_UART_ERROR_ORE) != 0))
+	((huart->ErrorCode & HAL_UART_ERROR_ORE) != 0))
     {
         rx_index = 0;
-        rx_discard_line = 1;
         UART_StartReceive();
     }
 }
@@ -226,4 +215,3 @@ void UART_IR(void)
     sprintf(line, "IR: 0x%02X %s\r\n", (unsigned)state, bits);
     UART_SendString(line);
 }
-

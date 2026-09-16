@@ -32,7 +32,8 @@ void PWM_RightSpeed(uint32_t speed)
 
 void PWM_Init(void)
 {
-	PWM_Start();
 	PWM_LeftSpeed(1500);
 	PWM_RightSpeed(1500);
+	PWM_Start();
+
 }
