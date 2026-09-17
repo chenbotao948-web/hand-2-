@@ -78,3 +78,21 @@ uint8_t IR_Read(void)
 
     return state;   /* 返回 8 路合并后的状态 */
 }
+
+/* ir.c */
+uint8_t ir_data[8] = {0};   /* ir_data[0]~ir_data[7] 对应左1~右1 */
+
+void IR_Update(void)
+{
+    uint8_t state = IR_Read();          /* 只读一次，存起来 */
+
+    for (uint8_t i = 0; i < 8; i++)
+    {
+        ir_data[i] = (state >> (7 - i)) & 0x01;
+    }
+}
+
+
+
+
+

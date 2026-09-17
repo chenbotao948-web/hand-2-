@@ -15,11 +15,17 @@ extern UART_HandleTypeDef huart1;
 
 static uint8_t rx_byte;                        /* 当前收到的 1 字节 */
 static char rx_buffer[UART_RX_BUFFER_SIZE];    /* 一行命令的缓存 */
-static uint16_t rx_index = 0;                  /* rx_buffer 当前写入位置 */
-static volatile uint8_t rx_line_ready = 0;     /* 1 表示有一条完整命令等待主循环处理 */
+static uint16_t rx_index = 0;                  /* rx_buffer 当前写入位置，数组放的位置 */
+static volatile uint8_t rx_line_ready = 0;     /* 1=完整命令，2=超长命令错误，命令标志位 */
+static volatile uint8_t rx_drop_line = 0;      /* 丢弃当前残缺行，直到收到 '\n' */
+static volatile uint8_t rx_drop_report = 0;    /* 当前丢弃行为超长命令，需要报错 */
+static uint8_t ir_report_enabled = 1;           /* 默认输出红外状态变化 */
 
 static void UART_StartReceive(void);
 static void UART_ProcessLine(char *line);//程序对比表格
+static uint8_t UART_ParseFloat(const char *text, float *value);
+static void UART_SendCommandResult(const char *line, uint8_t success);
+static void UART_SendPidParameters(void);
 
 /**
   * @brief  串口初始化，启动第一次中断接收
@@ -30,6 +36,9 @@ void UART_Init(void)
 {
     rx_index = 0;//数组位置为零
     rx_line_ready = 0;
+    rx_drop_line = 0;
+    rx_drop_report = 0;
+    ir_report_enabled = 1;
     UART_StartReceive();//接收中断开启
 }
 
@@ -65,27 +74,53 @@ void UART_Task(void)
         return;
     }
 
-    UART_ProcessLine(rx_buffer);
+    if (rx_line_ready == 2U)
+    {
+        UART_SendString("ERR\n");
+    }
+    else
+    {
+        UART_ProcessLine(rx_buffer);
+    }
     rx_line_ready = 0;
 }
 
 /**
   * @brief  串口接收完成回调，每收到 1 字节进一次
   * @param  huart: 触发回调的串口句柄
-  * @note   做法 A：
-  *         - 上一条命令还没被主循环处理完时，当前字节直接丢弃；
+  * @note   - 上一条命令还没被主循环处理完时，新行整行丢弃；
   *         - 收到 '\n' 表示一行结束，通知主循环处理；
   *         - '\r' 直接忽略，兼容 "\r\n" 结尾。
-  *         代价：发太快时可能丢命令，也可能出现半行，
-  *         适合手动一条条发送、发一条等一条的场景。
+  *         适合手动逐条发送，并在收到回复后再发下一条。
   */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART1)
     {
-        /* 上一条还没处理完，当前字节直接丢弃 */
+        if (rx_drop_line != 0U)
+        {
+            if (rx_byte == '\n')
+            {
+                rx_drop_line = 0;
+                rx_index = 0;
+                if (rx_drop_report != 0U)
+                {
+                    rx_line_ready = 2U;
+                    rx_drop_report = 0;
+                }
+            }
+            UART_StartReceive();
+            return;
+        }
+
+        /* 上一条还没处理完时，若新行已经开始，则整行丢弃。 */
         if (rx_line_ready != 0)
         {
+            if (rx_byte != '\n' && rx_byte != '\r')
+            {
+                rx_drop_line = 1;
+                rx_drop_report = 0;
+            }
             UART_StartReceive();
             return;
         }
@@ -101,11 +136,17 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         }
         else if (rx_byte != '\r')
         {
-            if (rx_index < (UART_RX_BUFFER_SIZE - 1))
+            if (rx_index < (UART_RX_BUFFER_SIZE - 1))//0到62存字符rx_index < 63。结尾还要放\0作为字符串结尾
             {
                 rx_buffer[rx_index++] = rx_byte;
             }
-            /* 缓冲区满，静默丢弃后续字符，等 '\n' 封口 */
+            else
+            {
+                /* 超长命令不能截断执行，丢弃到行尾后在主循环报错。 */
+                rx_index = 0;
+                rx_drop_line = 1;
+                rx_drop_report = 1;
+            }
         }
 
         /* 无论哪种情况，都要重新开启下一次接收 */
@@ -124,6 +165,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 	((huart->ErrorCode & HAL_UART_ERROR_ORE) != 0))
     {
         rx_index = 0;
+        rx_drop_line = 1;
+        rx_drop_report = 0;
         UART_StartReceive();
     }
 }
@@ -131,13 +174,14 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 /**
   * @brief  解析一行命令并执行
   * @param  line: 以 '\0' 结尾的一行命令字符串
-  * @note   支持 "LeftSpeed=数值"、"RightSpeed=数值"、
-  *         "Track=1" 和 "Track=0"。
+  * @note   支持电机、循迹、红外回报和 PID 实时调参命令。
   *         成功执行后回显 "原命令 OK\n"；否则回显 "原命令 ERR\n"。
   */
 static void UART_ProcessLine(char *line)
 {
     uint32_t speed;
+    float value;
+    uint8_t success = 1U;
 
     if (strcmp(line, "Track=1") == 0)
     {
@@ -147,12 +191,56 @@ static void UART_ProcessLine(char *line)
     {
         PID_Stop();
     }
+    else if (strcmp(line, "IR=1") == 0)
+    {
+        ir_report_enabled = 1U;
+    }
+    else if (strcmp(line, "IR=0") == 0)
+    {
+        ir_report_enabled = 0U;
+    }
+    else if (strcmp(line, "PID?") == 0)
+    {
+        UART_SendPidParameters();
+        return;
+    }
+    else if (strncmp(line, "Kp=", 3) == 0)
+    {
+        success = UART_ParseFloat(line + 3, &value);
+        if (success != 0U)
+        {
+            success = PID_SetKp(value);
+        }
+    }
+    else if (strncmp(line, "Ki=", 3) == 0)
+    {
+        success = UART_ParseFloat(line + 3, &value);
+        if (success != 0U)
+        {
+            success = PID_SetKi(value);
+        }
+    }
+    else if (strncmp(line, "Kd=", 3) == 0)
+    {
+        success = UART_ParseFloat(line + 3, &value);
+        if (success != 0U)
+        {
+            success = PID_SetKd(value);
+        }
+    }
+    else if (strncmp(line, "Base=", 5) == 0)
+    {
+        success = UART_ParseFloat(line + 5, &value);
+        if (success != 0U)
+        {
+            success = PID_SetBaseSpeed(value);
+        }
+    }
     else if (strncmp(line, "LeftSpeed=", 10) == 0)
     {
         if (PID_IsRunning() != 0U)
         {
-            UART_SendString(line);
-            UART_SendString(" ERR\n");
+            UART_SendCommandResult(line, 0U);
             return;
         }
         /* 取 '=' 后面的数字，转成 uint32_t */
@@ -163,8 +251,7 @@ static void UART_ProcessLine(char *line)
     {
         if (PID_IsRunning() != 0U)
         {
-            UART_SendString(line);
-            UART_SendString(" ERR\n");
+            UART_SendCommandResult(line, 0U);
             return;
         }
         speed = (uint32_t)strtoul(line + 11, NULL, 10);
@@ -172,15 +259,63 @@ static void UART_ProcessLine(char *line)
     }
     else
     {
-        /* 无法识别的命令 */
-        UART_SendString(line);
-        UART_SendString(" ERR\n");
-        return;
+        success = 0U;
     }
 
-    /* 回显：原命令 + " OK\n" */
+    UART_SendCommandResult(line, success);
+}
+
+static uint8_t UART_ParseFloat(const char *text, float *value)
+{
+    char *end;
+    float parsed;
+
+    if ((text == NULL) || (value == NULL) || (*text == '\0'))
+    {
+        return 0U;
+    }
+    parsed = strtof(text, &end);
+    if ((end == text) || (*end != '\0') || (parsed != parsed))
+    {
+        return 0U;
+    }
+    *value = parsed;
+    return 1U;
+}
+
+static void UART_SendCommandResult(const char *line, uint8_t success)
+{
     UART_SendString(line);
-    UART_SendString(" OK\n");
+    UART_SendString((success != 0U) ? " OK\n" : " ERR\n");
+}
+
+static void UART_SendPidParameters(void)
+{
+    PID_Parameters parameters;
+    uint32_t kp_milli;
+    uint32_t ki_milli;
+    uint32_t kd_milli;
+    uint32_t base_milli;
+    char line[96];
+
+    PID_GetParameters(&parameters);
+    kp_milli = (uint32_t)(parameters.kp * 1000.0f + 0.5f);
+    ki_milli = (uint32_t)(parameters.ki * 1000.0f + 0.5f);
+    kd_milli = (uint32_t)(parameters.kd * 1000.0f + 0.5f);
+    base_milli = (uint32_t)(parameters.base_speed_us * 1000.0f + 0.5f);
+
+    sprintf(line,
+            "PID Kp=%lu.%03lu Ki=%lu.%03lu Kd=%lu.%03lu Base=%lu.%03lu Track=%u\n",
+            (unsigned long)(kp_milli / 1000U),
+            (unsigned long)(kp_milli % 1000U),
+            (unsigned long)(ki_milli / 1000U),
+            (unsigned long)(ki_milli % 1000U),
+            (unsigned long)(kd_milli / 1000U),
+            (unsigned long)(kd_milli % 1000U),
+            (unsigned long)(base_milli / 1000U),
+            (unsigned long)(base_milli % 1000U),
+            (unsigned)parameters.running);
+    UART_SendString(line);
 }
 
 /**
@@ -197,6 +332,11 @@ void UART_IR(void)
     char    bits[9];
     char    line[24];
     uint8_t i;
+
+    if (ir_report_enabled == 0U)
+    {
+        return;
+    }
 
     state = IR_Read();
     if ((initialized != 0U) && (state == last_state))

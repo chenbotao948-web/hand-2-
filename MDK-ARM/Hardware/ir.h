@@ -10,5 +10,9 @@
   *         实测黑底为 1，白线为 0
   */
 uint8_t IR_Read(void);
+extern uint8_t ir_data[8];
+void IR_Update(void);
+
+/* ir.h */
 
 #endif
