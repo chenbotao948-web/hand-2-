@@ -553,6 +553,21 @@ void OLED_Show_Project(void)
 		line3[3U + i] = (ir_data[i] != 0U) ? '1' : '0';
 	}
 
+	line4[0] = 'M';
+	line4[1] = 'O';
+	line4[2] = 'D';
+	line4[3] = 'E';
+	line4[4] = ':';
+	line4[5] = (parameters.mode == PID_MODE_RIGHT_EDGE) ? '1' : '0';
+	line4[6] = ' ';
+	line4[7] = 'T';
+	line4[8] = 'R';
+	line4[9] = 'A';
+	line4[10] = 'C';
+	line4[11] = 'K';
+	line4[12] = ':';
+	line4[13] = (parameters.running != 0U) ? '1' : '0';
+
 	OLED_ShowString(1U, 1U, line1);
 	OLED_ShowString(2U, 1U, line2);
 	OLED_ShowString(3U, 1U, line3);

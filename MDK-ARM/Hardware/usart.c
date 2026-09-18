@@ -191,6 +191,14 @@ static void UART_ProcessLine(char *line)
     {
         PID_Stop();
     }
+    else if (strcmp(line, "Mode=0") == 0)
+    {
+        success = PID_SetMode(PID_MODE_CENTER);
+    }
+    else if (strcmp(line, "Mode=1") == 0)
+    {
+        success = PID_SetMode(PID_MODE_RIGHT_EDGE);
+    }
     else if (strcmp(line, "IR=1") == 0)
     {
         ir_report_enabled = 1U;
@@ -234,6 +242,14 @@ static void UART_ProcessLine(char *line)
         if (success != 0U)
         {
             success = PID_SetBaseSpeed(value);
+        }
+    }
+    else if (strncmp(line, "LostExtra=", 10) == 0)
+    {
+        success = UART_ParseFloat(line + 10, &value);
+        if (success != 0U)
+        {
+            success = PID_SetLostExtra(value);
         }
     }
     else if (strncmp(line, "LeftSpeed=", 10) == 0)
@@ -296,25 +312,46 @@ static void UART_SendPidParameters(void)
     uint32_t ki_milli;
     uint32_t kd_milli;
     uint32_t base_milli;
-    char line[96];
+    uint32_t lost_extra_milli;
+    char line[128];
 
     PID_GetParameters(&parameters);
     kp_milli = (uint32_t)(parameters.kp * 1000.0f + 0.5f);
     ki_milli = (uint32_t)(parameters.ki * 1000.0f + 0.5f);
     kd_milli = (uint32_t)(parameters.kd * 1000.0f + 0.5f);
     base_milli = (uint32_t)(parameters.base_speed_us * 1000.0f + 0.5f);
+    lost_extra_milli = (uint32_t)(parameters.lost_extra_us * 1000.0f + 0.5f);
 
-    sprintf(line,
-            "PID Kp=%lu.%03lu Ki=%lu.%03lu Kd=%lu.%03lu Base=%lu.%03lu Track=%u\n",
-            (unsigned long)(kp_milli / 1000U),
-            (unsigned long)(kp_milli % 1000U),
-            (unsigned long)(ki_milli / 1000U),
-            (unsigned long)(ki_milli % 1000U),
-            (unsigned long)(kd_milli / 1000U),
-            (unsigned long)(kd_milli % 1000U),
-            (unsigned long)(base_milli / 1000U),
-            (unsigned long)(base_milli % 1000U),
-            (unsigned)parameters.running);
+    if (parameters.mode == PID_MODE_RIGHT_EDGE)
+    {
+        sprintf(line,
+                "PID Mode=1 Kp=%lu.%03lu Ki=%lu.%03lu Kd=%lu.%03lu Base=%lu.%03lu LostExtra=%lu.%03lu Track=%u\n",
+                (unsigned long)(kp_milli / 1000U),
+                (unsigned long)(kp_milli % 1000U),
+                (unsigned long)(ki_milli / 1000U),
+                (unsigned long)(ki_milli % 1000U),
+                (unsigned long)(kd_milli / 1000U),
+                (unsigned long)(kd_milli % 1000U),
+                (unsigned long)(base_milli / 1000U),
+                (unsigned long)(base_milli % 1000U),
+                (unsigned long)(lost_extra_milli / 1000U),
+                (unsigned long)(lost_extra_milli % 1000U),
+                (unsigned)parameters.running);
+    }
+    else
+    {
+        sprintf(line,
+                "PID Mode=0 Kp=%lu.%03lu Ki=%lu.%03lu Kd=%lu.%03lu Base=%lu.%03lu Track=%u\n",
+                (unsigned long)(kp_milli / 1000U),
+                (unsigned long)(kp_milli % 1000U),
+                (unsigned long)(ki_milli / 1000U),
+                (unsigned long)(ki_milli % 1000U),
+                (unsigned long)(kd_milli / 1000U),
+                (unsigned long)(kd_milli % 1000U),
+                (unsigned long)(base_milli / 1000U),
+                (unsigned long)(base_milli % 1000U),
+                (unsigned)parameters.running);
+    }
     UART_SendString(line);
 }
 
