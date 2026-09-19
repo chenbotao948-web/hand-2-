@@ -2,6 +2,35 @@
 #define __PID_H
 
 #include "main.h"
+#include "imu.h"
+
+/* 从 Track=1 起计时；单位 ms，后期直接在这里修改。 */
+#define PID_ANGLE_WAIT_MS 20000U
+
+typedef enum
+{
+    PID_STAGE_STOP = 0,
+    PID_STAGE_CENTER,
+    PID_STAGE_ANGLE,
+    PID_STAGE_EDGE,
+    PID_STAGE_MANUAL,
+    PID_STAGE_FAULT
+} PID_Stage;
+
+typedef enum
+{
+    PID_ANGLE_LEFT, PID_ANGLE_RIGHT, PID_ANGLE_KP,
+    PID_ANGLE_KI, PID_ANGLE_KD, PID_ANGLE_BASE
+} PID_AngleParameter;
+
+typedef struct
+{
+    IMU_State imu;
+    PID_Stage stage;
+    float initial_deg, delta_deg;
+    float left_deg, right_deg, kp, ki, kd, base_us;
+    uint32_t elapsed_ms;
+} PID_AngleStatus;
 
 typedef enum
 {
@@ -34,7 +63,7 @@ typedef struct
 } PID_Parameters;
 
 void PID_Init(void);
-void PID_Start(void);
+uint8_t PID_Start(void);
 void PID_Stop(void);
 uint8_t PID_IsRunning(void);
 uint8_t PID_SetMode(PID_Mode mode);
@@ -46,5 +75,9 @@ uint8_t PID_SetBaseSpeed(float value);
 uint8_t PID_SetLostExtra(float value);
 void PID_GetParameters(PID_Parameters *parameters);
 void PID_Update20ms(void);
+uint8_t PID_SetAngleParameter(PID_AngleParameter parameter, float value);
+void PID_GetAngleStatus(PID_AngleStatus *status);
+uint8_t PID_TakeImuFault(void);
+PID_Stage PID_GetStage(void);
 
 #endif

@@ -15,6 +15,18 @@ volatile float edge_kd = 0.0f;
 volatile float edge_base_speed_us = 80.0f;
 volatile float edge_lost_extra_us = 20.0f;
 
+/* 左右容差单位 deg；参数仅存 RAM。角度 PID 按每拍累加/差分，周期 20ms。 */
+static float angle_left_deg = 10.0f, angle_right_deg = 10.0f;
+static float angle_kp = 2.0f, angle_ki = 0.0f, angle_kd = 0.0f;
+static float angle_base_us = 80.0f;
+static float angle_sum, angle_last_error;
+static uint8_t angle_has_last_error;
+static volatile PID_Stage pid_stage = PID_STAGE_STOP;
+static volatile uint8_t imu_fault_pending;
+static float initial_yaw;
+static uint32_t start_ms, start_fault_count;
+static uint8_t has_reference;
+
 #define PID_STOP_US                 1500.0f
 #define PID_MAX_US                   250.0f
 #define PID_REVERSE_DEADZONE_US       50.0f
@@ -74,6 +86,8 @@ static void PID_ResetAllHistory(void)
 {
     PID_ResetCenterHistory();
     PID_ResetEdgeHistory();
+    angle_sum = angle_last_error = 0.0f;
+    angle_has_last_error = 0U;
 }
 
 static uint8_t PID_ValueInRange(float value, float high)
@@ -319,25 +333,48 @@ void PID_Init(void)
 {
     pid_running = 0U;
     pid_mode = PID_MODE_CENTER;
+    pid_stage = PID_STAGE_STOP;
+    has_reference = imu_fault_pending = 0U;
     PID_ResetAllHistory();
     Car_Stop();
 }
 
-void PID_Start(void)
+uint8_t PID_Start(void)
 {
-    /* 最后才开放中断更新，避免复位历史时被 TIM3 使用到一半。 */
+    IMU_State imu;
+    uint32_t key = PID_EnterCritical();
+    uint32_t now = HAL_GetTick();
+    IMU_GetState(&imu);
+    if (!imu.ready || !imu.healthy ||
+        (uint32_t)(now - imu.sample_ms) > IMU_STALE_MS)
+    {
+        PID_Stop();
+        PID_ExitCritical(key);
+        return 0U;
+    }
     pid_running = 0U;
     PID_ResetAllHistory();
     Car_Stop();
+    initial_yaw = imu.yaw_deg;
+    start_ms = now;
+    start_fault_count = imu.fault_count;
+    has_reference = 1U;
+    pid_mode = PID_MODE_CENTER;
+    pid_stage = PID_STAGE_CENTER;
     pid_running = 1U;
+    PID_ExitCritical(key);
+    return 1U;
 }
 
 void PID_Stop(void)
 {
-    /* 先禁止中断更新，再清历史和停车。 */
+    uint32_t key = PID_EnterCritical();
     pid_running = 0U;
+    pid_stage = PID_STAGE_STOP;
+    has_reference = 0U;
     PID_ResetAllHistory();
     Car_Stop();
+    PID_ExitCritical(key);
 }
 
 uint8_t PID_IsRunning(void)
@@ -355,11 +392,11 @@ uint8_t PID_SetMode(PID_Mode mode)
     }
 
     primask = PID_EnterCritical();
-    if (pid_mode != mode)
-    {
-        pid_mode = mode;
-        PID_ResetAllHistory();
-    }
+    /* 即使 Mode 值未变，也要取消自动流程。停车时只选择，不起跑。 */
+    pid_mode = mode;
+    pid_stage = pid_running ? PID_STAGE_MANUAL : PID_STAGE_STOP;
+    has_reference = 0U;
+    PID_ResetAllHistory();
     PID_ExitCritical(primask);
     return 1U;
 }
@@ -503,27 +540,128 @@ void PID_GetParameters(PID_Parameters *parameters)
     PID_ExitCritical(primask);
 }
 
+uint8_t PID_SetAngleParameter(PID_AngleParameter parameter, float value)
+{
+    uint32_t key;
+    float limit = (parameter == PID_ANGLE_BASE) ? PID_MAX_US : PID_GAIN_MAX;
+    if ((unsigned)parameter > (unsigned)PID_ANGLE_BASE) return 0U;
+    if (!PID_ValueInRange(value, limit)) return 0U;
+    if ((parameter == PID_ANGLE_LEFT || parameter == PID_ANGLE_RIGHT) && value >= 180.0f)
+        return 0U;
+    key = PID_EnterCritical();
+    switch (parameter)
+    {
+        case PID_ANGLE_LEFT: angle_left_deg = value; break;
+        case PID_ANGLE_RIGHT: angle_right_deg = value; break;
+        case PID_ANGLE_KP: angle_kp = value; break;
+        case PID_ANGLE_KI: angle_ki = value; break;
+        case PID_ANGLE_KD: angle_kd = value; break;
+        case PID_ANGLE_BASE: angle_base_us = value; break;
+        default: break;
+    }
+    if (parameter >= PID_ANGLE_KP && parameter <= PID_ANGLE_KD)
+    {
+        angle_sum = angle_last_error = 0.0f;
+        angle_has_last_error = 0U;
+    }
+    PID_ExitCritical(key);
+    return 1U;
+}
+
+void PID_GetAngleStatus(PID_AngleStatus *status)
+{
+    uint32_t key = PID_EnterCritical();
+    IMU_GetState(&status->imu);
+    status->stage = pid_stage;
+    status->initial_deg = has_reference ? initial_yaw : 0.0f;
+    status->delta_deg = has_reference ? IMU_WrapAngle(status->imu.yaw_deg - initial_yaw) : 0.0f;
+    status->elapsed_ms = has_reference ? (uint32_t)(HAL_GetTick() - start_ms) : 0U;
+    status->left_deg = angle_left_deg;
+    status->right_deg = angle_right_deg;
+    status->kp = angle_kp; status->ki = angle_ki; status->kd = angle_kd;
+    status->base_us = angle_base_us;
+    PID_ExitCritical(key);
+}
+
+PID_Stage PID_GetStage(void)
+{
+    return pid_stage;
+}
+
+uint8_t PID_TakeImuFault(void)
+{
+    uint32_t key = PID_EnterCritical();
+    uint8_t pending = imu_fault_pending;
+    imu_fault_pending = 0U;
+    PID_ExitCritical(key);
+    return pending;
+}
+
+static void PID_UpdateAngle(float delta)
+{
+    /* delta 左偏为正，此时应右转：左轮加速、右轮减速。 */
+    float error = -delta;
+    float derivative = 0.0f, correction;
+    if (angle_ki > 0.0f)
+    {
+        angle_sum = PID_Limit(angle_sum + error,
+                             -PID_I_OUTPUT_LIMIT_US / angle_ki,
+                              PID_I_OUTPUT_LIMIT_US / angle_ki);
+    }
+    else angle_sum = 0.0f;
+    if (angle_has_last_error)
+        derivative = IMU_WrapAngle(error - angle_last_error);
+    angle_last_error = error;
+    angle_has_last_error = 1U;
+    correction = angle_kp * error + angle_ki * angle_sum + angle_kd * derivative;
+    PID_ApplyForward(angle_base_us - correction, angle_base_us + correction);
+}
+
 void PID_Update20ms(void)
 {
-    uint8_t raw_state;
     uint8_t white_bits;
-    PID_Mode mode;
+    IMU_State imu;
+    uint32_t now;
+    float delta;
 
-    if (pid_running == 0U)
+    if (!pid_running) return;
+    white_bits = (uint8_t)(~IR_Read());
+    if (pid_stage == PID_STAGE_CENTER || pid_stage == PID_STAGE_ANGLE)
     {
-        return;
+        now = HAL_GetTick();
+        IMU_GetState(&imu);
+        if (!imu.ready || !imu.healthy || imu.fault_count != start_fault_count ||
+            (uint32_t)(now - imu.sample_ms) > IMU_STALE_MS)
+        {
+            /* 中断仅停车并记录，串口故障报告交给主循环。保留参考角便于查询。 */
+            pid_running = 0U;
+            pid_stage = PID_STAGE_FAULT;
+            imu_fault_pending = 1U;
+            PID_ResetAllHistory();
+            Car_Stop();
+            return;
+        }
+        delta = IMU_WrapAngle(imu.yaw_deg - initial_yaw);
+        if (pid_stage == PID_STAGE_CENTER &&
+            (uint32_t)(now - start_ms) >= PID_ANGLE_WAIT_MS && white_bits == 0U &&
+            delta >= -angle_right_deg && delta <= angle_left_deg)
+        {
+            PID_ResetAllHistory();
+            pid_stage = PID_STAGE_ANGLE;
+        }
+        if (pid_stage == PID_STAGE_ANGLE)
+        {
+            if (white_bits == 0U)
+            {
+                PID_UpdateAngle(delta);
+                return;
+            }
+            /* 任意一路白色即接管；没有有效边界时沿用 PID2 保持上一拍的行为。 */
+            PID_ResetAllHistory();
+            pid_mode = PID_MODE_RIGHT_EDGE;
+            pid_stage = PID_STAGE_EDGE;
+        }
     }
-
-    raw_state = IR_Read();
-    white_bits = (uint8_t)(~raw_state);  /* 转换后 1 表示白线。 */
-    mode = pid_mode;
-
-    if (mode == PID_MODE_RIGHT_EDGE)
-    {
-        PID_UpdateRightEdge(white_bits);
-    }
-    else
-    {
-        PID_UpdateCenter(white_bits);
-    }
+    if (pid_mode == PID_MODE_RIGHT_EDGE) PID_UpdateRightEdge(white_bits);
+    else PID_UpdateCenter(white_bits);
 }

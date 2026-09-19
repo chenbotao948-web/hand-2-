@@ -580,6 +580,11 @@
               <FilePath>../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_exti.c</FilePath>
             </File>
             <File>
+              <FileName>stm32f1xx_hal_spi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_spi.c</FilePath>
+            </File>
+            <File>
               <FileName>stm32f1xx_hal_uart.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_uart.c</FilePath>
@@ -679,6 +684,26 @@
               <FileName>ir.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\Hardware\ir.h</FilePath>
+            </File>
+            <File>
+              <FileName>icm42688.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\icm42688.c</FilePath>
+            </File>
+            <File>
+              <FileName>icm42688.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\icm42688.h</FilePath>
+            </File>
+            <File>
+              <FileName>imu.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\imu.c</FilePath>
+            </File>
+            <File>
+              <FileName>imu.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\imu.h</FilePath>
             </File>
             <File>
               <FileName>pid.c</FileName>

@@ -26,6 +26,7 @@
 #include "pid.h"
 #include "ir.h"
 #include "oled.h"
+#include "imu.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,6 +45,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+SPI_HandleTypeDef hspi2;
+
 TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart1;
@@ -55,6 +58,7 @@ volatile uint32_t tim3_pid_tick_count = 0;  /* TIM3 20ms 中断计数，便于�
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_SPI2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
@@ -97,12 +101,13 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM3_Init();
   MX_USART1_UART_Init();
+  MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
 	PWM_Init();
 	OLED_Init();
 	UART_Init();
 	PID_Init();
-	PID_Start();
+	IMU_Init(); /* 上电停车，主循环静止校准后等待 Track=1。 */
 	__HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
 	__HAL_TIM_ENABLE_IT(&htim3, TIM_IT_UPDATE);
   /* USER CODE END 2 */
@@ -111,6 +116,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    IMU_Task();
 	 UART_Task();
     IR_Update();
 	 OLED_Show_Project();
@@ -160,6 +166,25 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/** SPI2 保留参考接线：PB13 SCK / PB14 MISO / PB15 MOSI / PA2 CS。
+  * 与 .ioc 同步；重新生成时由 CubeMX 维护本初始化函数。 */
+static void MX_SPI2_Init(void)
+{
+  hspi2.Instance = SPI2;
+  hspi2.Init.Mode = SPI_MODE_MASTER;
+  hspi2.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi2.Init.CLKPolarity = SPI_POLARITY_HIGH;
+  hspi2.Init.CLKPhase = SPI_PHASE_2EDGE;
+  hspi2.Init.NSS = SPI_NSS_SOFT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
+  hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi2.Init.CRCPolynomial = 7;
+  if (HAL_SPI_Init(&hspi2) != HAL_OK) Error_Handler();
 }
 
 /**
@@ -284,6 +309,14 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  /* PA2 片选上电先拉高，避免误选中；引脚在 .ioc 同步维护。 */
+  HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_SET);
+  GPIO_InitStruct.Pin = IMU_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(IMU_CS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PC13 PC14 PC11 PC12 */
   GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_11|GPIO_PIN_12;

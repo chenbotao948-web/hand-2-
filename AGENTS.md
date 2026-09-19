@@ -26,7 +26,12 @@
 │     ├─ pwm.c / pwm.h             # PWM 模块
 │     ├─ usart.c / usart.h         # 串口模块
 │     ├─ ir.c / ir.h               # 红外读取模块
-│     └─ pid.c / pid.h             # 20ms 黑底白线循迹 PID 模块
+│     ├─ pid.c / pid.h             # 20ms 中心循迹→角度控制→右边界循迹
+│     ├─ icm42688.c / icm42688.h   # HAL SPI2 陀螺仪驱动
+│     ├─ imu.c / imu.h             # 静止校准、航向解算和数据有效性
+│     └─ OLED.c / OLED.h           # OLED 显示，运行时逐字符刷新
+├─ tests/                         # ARMCC + Cortex-M3 仿真回归，不驱动实车
+├─ 陀螺仪与三阶段控制.md             # 状态流程、接线、参数、串口命令及上板步骤
 ├─ Drivers/                        # HAL、CMSIS 等厂商库
 └─ 比赛相关文件/                    # 比赛及硬件参考资料
 ```

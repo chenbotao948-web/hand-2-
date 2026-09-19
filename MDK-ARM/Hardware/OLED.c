@@ -515,12 +515,21 @@ void OLED_Show_Project(void)
 	static uint8_t first_refresh = 1U;
 	uint32_t now = HAL_GetTick();
 	PID_Parameters parameters;
-	char line1[17];
-	char line2[17];
-	char line3[17];
-	char line4[17];
+	static char lines[4][17];
+    char *line1 = lines[0], *line2 = lines[1], *line3 = lines[2], *line4 = lines[3];
+    static uint8_t next_char = 64U;
+    char character[2];
 	uint8_t i;
 
+    /* 每次主循环只刷新一个字符，让 IMU_Task 在字符之间获得执行机会。 */
+    if (next_char < 64U)
+    {
+        character[0] = lines[next_char / 16U][next_char % 16U];
+        character[1] = '\0';
+        OLED_ShowString(next_char / 16U + 1U, next_char % 16U + 1U, character);
+        next_char++;
+        return;
+    }
 	if ((first_refresh == 0U) &&
 		((uint32_t)(now - last_refresh_tick) < OLED_PROJECT_REFRESH_MS))
 	{
@@ -559,6 +568,7 @@ void OLED_Show_Project(void)
 	line4[3] = 'E';
 	line4[4] = ':';
 	line4[5] = (parameters.mode == PID_MODE_RIGHT_EDGE) ? '1' : '0';
+    if (PID_GetStage() == PID_STAGE_ANGLE) line4[5] = 'A';
 	line4[6] = ' ';
 	line4[7] = 'T';
 	line4[8] = 'R';
@@ -568,10 +578,7 @@ void OLED_Show_Project(void)
 	line4[12] = ':';
 	line4[13] = (parameters.running != 0U) ? '1' : '0';
 
-	OLED_ShowString(1U, 1U, line1);
-	OLED_ShowString(2U, 1U, line2);
-	OLED_ShowString(3U, 1U, line3);
-	OLED_ShowString(4U, 1U, line4);
+    next_char = 0U;
 }
 
 /**

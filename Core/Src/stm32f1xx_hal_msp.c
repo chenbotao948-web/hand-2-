@@ -57,6 +57,34 @@
 
 /* USER CODE END 0 */
 
+/* SPI2: PB13=SCK, PB14=MISO, PB15=MOSI；PA2 软件片选在 MX_GPIO_Init。 */
+void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi)
+{
+  GPIO_InitTypeDef gpio = {0};
+  if (hspi->Instance == SPI2)
+  {
+    __HAL_RCC_SPI2_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    gpio.Pin = GPIO_PIN_13 | GPIO_PIN_15;
+    gpio.Mode = GPIO_MODE_AF_PP;
+    gpio.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(GPIOB, &gpio);
+    gpio.Pin = GPIO_PIN_14;
+    gpio.Mode = GPIO_MODE_INPUT;
+    gpio.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOB, &gpio);
+  }
+}
+
+void HAL_SPI_MspDeInit(SPI_HandleTypeDef *hspi)
+{
+  if (hspi->Instance == SPI2)
+  {
+    __HAL_RCC_SPI2_CLK_DISABLE();
+    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15);
+  }
+}
+
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
                     /**
   * Initializes the Global MSP.

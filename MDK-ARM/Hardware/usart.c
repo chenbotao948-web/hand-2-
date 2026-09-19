@@ -21,11 +21,21 @@ static volatile uint8_t rx_drop_line = 0;      /* 丢弃当前残缺行，直到
 static volatile uint8_t rx_drop_report = 0;    /* 当前丢弃行为超长命令，需要报错 */
 static uint8_t ir_report_enabled = 1;           /* 默认输出红外状态变化 */
 
+/* 主循环入队，TX 完成中断释放已发区域；不占用陀螺仪采样时间。 */
+#define UART_TX_BUFFER_SIZE 1024U
+#define UART_REPLY_RESERVE   640U
+static uint8_t tx_buffer[UART_TX_BUFFER_SIZE];
+static volatile uint16_t tx_head, tx_tail, tx_active;
+static uint8_t tx_overflow;
+
 static void UART_StartReceive(void);
 static void UART_ProcessLine(char *line);//程序对比表格
 static uint8_t UART_ParseFloat(const char *text, float *value);
 static void UART_SendCommandResult(const char *line, uint8_t success);
 static void UART_SendPidParameters(void);
+static void UART_SendAngleStatus(void);
+static void UART_TxKick(void);
+static uint16_t UART_TxFree(void);
 
 /**
   * @brief  串口初始化，启动第一次中断接收
@@ -39,6 +49,8 @@ void UART_Init(void)
     rx_drop_line = 0;
     rx_drop_report = 0;
     ir_report_enabled = 1;
+    tx_head = tx_tail = tx_active = 0U;
+    tx_overflow = 0U;
     UART_StartReceive();//接收中断开启
 }
 
@@ -52,27 +64,82 @@ static void UART_StartReceive(void)
 }
 
 /**
-  * @brief  阻塞方式发送一个字符串
+  * @brief  将完整字符串复制进发送队列，仅主循环调用
   * @param  str: 以 '\0' 结尾的字符串
-  * @note   用 HAL_MAX_DELAY 阻塞等待，简单场景够用。
+  * @note   空间不足时整段丢弃并稍后报告 TX_OVERFLOW，不覆盖未发数据。
   */
 void UART_SendString(const char *str)
 {
+    size_t length;
+    uint16_t head;
     if (str == NULL) return;
-    HAL_UART_Transmit(&huart1, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
+    length = strlen(str);
+    if (length > UART_TxFree()) { tx_overflow = 1U; return; }
+    head = tx_head;
+    while (*str != '\0')
+    {
+        tx_buffer[head] = (uint8_t)*str++;
+        head = (head + 1U) % UART_TX_BUFFER_SIZE;
+    }
+    __DMB();
+    tx_head = head; /* 完整复制之后才向中断发布。 */
+    UART_TxKick();
+}
+
+static uint16_t UART_TxFree(void)
+{
+    return (uint16_t)((tx_tail + UART_TX_BUFFER_SIZE - tx_head - 1U) % UART_TX_BUFFER_SIZE);
+}
+
+static void UART_TxKick(void)
+{
+    uint32_t key = __get_PRIMASK();
+    __disable_irq();
+    if (tx_active == 0U && tx_tail != tx_head)
+    {
+        tx_active = (tx_head > tx_tail) ? (tx_head - tx_tail) : (UART_TX_BUFFER_SIZE - tx_tail);
+        if (HAL_UART_Transmit_IT(&huart1, &tx_buffer[tx_tail], tx_active) != HAL_OK)
+            tx_active = 0U;
+    }
+    if (key == 0U) __enable_irq();
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART1)
+    {
+        tx_tail = (tx_tail + tx_active) % UART_TX_BUFFER_SIZE;
+        tx_active = 0U;
+        UART_TxKick();
+    }
 }
 
 /**
   * @brief  在主循环中处理已经接收完成的命令
-  * @note   命令解析、PWM 设置和阻塞回显都在这里执行，不占用串口中断。
+  * @note   命令解析、PWM 设置和回显入队在这里执行，不占用串口中断。
   *         处理期间 rx_line_ready 保持为 1，中断不会覆盖 rx_buffer。
   */
 void UART_Task(void)
 {
+    UART_TxKick();
+    if (UART_TxFree() >= UART_REPLY_RESERVE)
+    {
+        if (PID_TakeImuFault()) UART_SendString("IMU FAULT STOP\n");
+        if (tx_overflow)
+        {
+            tx_overflow = 0U;
+            UART_SendString("TX_OVERFLOW\n");
+        }
+    }
     if (rx_line_ready == 0)
     {
         return;
     }
+
+    /* 停车指令不能等待回显队列腾空；其他命令预留完整回复所需空间。 */
+    if (rx_line_ready == 1U && strcmp(rx_buffer, "Track=0") == 0)
+        PID_Stop();
+    if (UART_TxFree() < UART_REPLY_RESERVE) return;
 
     if (rx_line_ready == 2U)
     {
@@ -185,7 +252,7 @@ static void UART_ProcessLine(char *line)
 
     if (strcmp(line, "Track=1") == 0)
     {
-        PID_Start();
+        success = PID_Start();
     }
     else if (strcmp(line, "Track=0") == 0)
     {
@@ -211,6 +278,25 @@ static void UART_ProcessLine(char *line)
     {
         UART_SendPidParameters();
         return;
+    }
+    else if (strcmp(line, "Angle?") == 0)
+    {
+        UART_SendAngleStatus();
+        return;
+    }
+    else if (strncmp(line, "Angle", 5) == 0)
+    {
+        PID_AngleParameter parameter;
+        const char *number;
+        if (strncmp(line, "AngleLeft=", 10) == 0) { parameter = PID_ANGLE_LEFT; number = line + 10; }
+        else if (strncmp(line, "AngleRight=", 11) == 0) { parameter = PID_ANGLE_RIGHT; number = line + 11; }
+        else if (strncmp(line, "AngleKp=", 8) == 0) { parameter = PID_ANGLE_KP; number = line + 8; }
+        else if (strncmp(line, "AngleKi=", 8) == 0) { parameter = PID_ANGLE_KI; number = line + 8; }
+        else if (strncmp(line, "AngleKd=", 8) == 0) { parameter = PID_ANGLE_KD; number = line + 8; }
+        else if (strncmp(line, "AngleBase=", 10) == 0) { parameter = PID_ANGLE_BASE; number = line + 10; }
+        else { UART_SendCommandResult(line, 0U); return; }
+        success = UART_ParseFloat(number, &value);
+        if (success) success = PID_SetAngleParameter(parameter, value);
     }
     else if (strncmp(line, "Kp=", 3) == 0)
     {
@@ -355,6 +441,38 @@ static void UART_SendPidParameters(void)
     UART_SendString(line);
 }
 
+/* 不启用 printf 浮点格式，负的小角度也保留负号（例如 -0.250）。 */
+static void UART_FormatFloat(char *text, float value)
+{
+    uint32_t magnitude = (uint32_t)((value < 0.0f ? -value : value) * 1000.0f + 0.5f);
+    sprintf(text, "%s%lu.%03lu", value < 0.0f ? "-" : "",
+            (unsigned long)(magnitude / 1000U), (unsigned long)(magnitude % 1000U));
+}
+
+static void UART_SendAngleStatus(void)
+{
+    static const char * const names[] = {"STOP", "CENTER", "ANGLE", "EDGE", "MANUAL", "FAULT"};
+    PID_AngleStatus status;
+    char a[16], b[16], c[16], d[16], e[16], f[16];
+    char line[224];
+    PID_GetAngleStatus(&status);
+    UART_FormatFloat(a, status.imu.yaw_deg);
+    UART_FormatFloat(b, status.initial_deg);
+    UART_FormatFloat(c, status.delta_deg);
+    sprintf(line, "ANGLE Stage=%s Ready=%u Healthy=%u Yaw=%s Initial=%s Delta=%s Elapsed=%lu Age=%lu MaxGap=%lu Faults=%lu\n",
+            names[status.stage], (unsigned)status.imu.ready, (unsigned)status.imu.healthy,
+            a, b, c, (unsigned long)status.elapsed_ms,
+            (unsigned long)(HAL_GetTick() - status.imu.sample_ms),
+            (unsigned long)status.imu.max_gap_ms, (unsigned long)status.imu.fault_count);
+    UART_SendString(line);
+    UART_FormatFloat(a, status.left_deg); UART_FormatFloat(b, status.right_deg);
+    UART_FormatFloat(c, status.kp); UART_FormatFloat(d, status.ki);
+    UART_FormatFloat(e, status.kd); UART_FormatFloat(f, status.base_us);
+    sprintf(line, "ANGLE Left=%s Right=%s Kp=%s Ki=%s Kd=%s Base=%s Wait=%lu\n",
+            a, b, c, d, e, f, (unsigned long)PID_ANGLE_WAIT_MS);
+    UART_SendString(line);
+}
+
 /**
   * @brief  红外状态有变化时，把新状态发到串口
   * @note   在主循环里调用，内部记着上次的值，只有变化才输出，静止时不发。
@@ -374,6 +492,7 @@ void UART_IR(void)
     {
         return;
     }
+    if (UART_TxFree() < UART_REPLY_RESERVE + sizeof(line)) return;
 
     state = IR_Read();
     if ((initialized != 0U) && (state == last_state))
