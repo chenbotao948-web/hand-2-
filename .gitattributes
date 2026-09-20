@@ -1,0 +1,21 @@
+# Keil MDK 工程文件：统一用 LF，避免 Keil 保存时改行尾符导致 git 误判改动
+MDK-ARM/*.uvprojx text eol=lf
+MDK-ARM/*.uvoptx text eol=lf
+MDK-ARM/*.uvguix.* text eol=lf
+
+# 源码统一用 LF
+*.c   text eol=lf
+*.h   text eol=lf
+*.s   text eol=lf
+
+# 二进制文件不做行尾转换
+*.axf  binary
+*.hex  binary
+*.bin  binary
+*.o    binary
+*.crf  binary
+*.d    binary
+*.dep  binary
+*.lnp  binary
+*.htm  binary
+*.build_log.htm binary

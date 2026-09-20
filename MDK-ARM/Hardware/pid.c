@@ -48,7 +48,7 @@ static uint8_t edge_has_last_error = 0U;
 static float edge_last_position = EDGE_TARGET_POSITION;
 static uint8_t edge_has_last_position = 0U;
 
-static float PID_Limit(float value, float low, float high)
+static float PID_Limit(float value, float low, float high)//把值限制在[low, high]区间内
 {
     if (value > high)
     {
@@ -90,7 +90,7 @@ static void PID_ResetAllHistory(void)
     angle_has_last_error = 0U;
 }
 
-static uint8_t PID_ValueInRange(float value, float high)
+static uint8_t PID_ValueInRange(float value, float high)//判断值是否合法
 {
     /* value != value 可以识别 NaN；正负无穷会被范围判断拒绝。 */
     if ((value != value) || (value < 0.0f) || (value > high))
