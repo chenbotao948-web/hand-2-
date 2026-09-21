@@ -116,12 +116,21 @@ int main(void)
     command("AngleBase=0\n"); CHECK(strstr(output, "OK"));
     command("AngleKp=2.5\n"); CHECK(strstr(output, "OK"));
     command("Angle?\n"); CHECK(strstr(output, "Kp=2.500") && strstr(output, "Right=7.000"));
+    command("AngleWait=-1\n"); CHECK(strstr(output, "ERR"));
+    command("AngleWait=1abc\n"); CHECK(strstr(output, "ERR"));
+    command("AngleWait=2147483648\n"); CHECK(strstr(output, "ERR"));
+    command("AngleWait=500\n"); CHECK(strstr(output, "OK"));
+    command("Angle?\n"); CHECK(strstr(output, "Wait=500"));
+    fresh(0.0f); raw = 0xFFU; CHECK(PID_Start());
+    tick += 499U; fresh(0.0f); PID_Update20ms(); CHECK(PID_GetStage() == PID_STAGE_CENTER);
+    tick++; fresh(0.0f); PID_Update20ms(); CHECK(PID_GetStage() == PID_STAGE_ANGLE);
+    command("Track=0\n");
     CHECK(!PID_SetAngleParameter((PID_AngleParameter)-1, 1.0f));
     memset(too_long, 'a', sizeof(too_long)); too_long[88] = '\n'; too_long[89] = 0;
     command(too_long); CHECK(strstr(output, "ERR"));
     command("AngleLeft=0\n"); CHECK(strstr(output, "OK"));
     /* 持续发送触发 TX 环形缓冲回绕，验证异步输出仍完整。 */
-    for (i = 0; i < 20; i++) { command("Angle?\n"); CHECK(strstr(output, "Wait=20000") != 0); }
+    for (i = 0; i < 20; i++) { command("Angle?\n"); CHECK(strstr(output, "Wait=500") != 0); }
     /* 堵塞 TX 时停车不能等回复腾空。 */
     UART_SendString(too_long); UART_SendString(too_long); UART_SendString(too_long);
     UART_SendString(too_long); UART_SendString(too_long); UART_SendString(too_long);

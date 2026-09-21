@@ -15,10 +15,11 @@ volatile float edge_kd = 0.0f;
 volatile float edge_base_speed_us = 80.0f;
 volatile float edge_lost_extra_us = 20.0f;
 
-/* 左右容差单位 deg；参数仅存 RAM。角度 PID 按每拍累加/差分，周期 20ms。 */
+/* 左右容差单位 deg；参数仅存 RAM。角度 PID 按每拍累加/差分，周期 20ms。角度pid */
 static float angle_left_deg = 10.0f, angle_right_deg = 10.0f;
 static float angle_kp = 2.0f, angle_ki = 0.0f, angle_kd = 0.0f;
 static float angle_base_us = 80.0f;
+static volatile uint32_t angle_wait_ms = PID_ANGLE_WAIT_DEFAULT_MS;
 static float angle_sum, angle_last_error;
 static uint8_t angle_has_last_error;
 static volatile PID_Stage pid_stage = PID_STAGE_STOP;
@@ -33,7 +34,7 @@ static uint8_t has_reference;
 #define PID_GAIN_MAX                1000.0f
 #define PID_I_ACTIVE_ERROR             1.0f
 #define PID_I_OUTPUT_LIMIT_US          20.0f
-#define EDGE_TARGET_POSITION            5.5f
+#define EDGE_TARGET_POSITION            5.5f//目标位置
 
 static volatile uint8_t pid_running = 0U;
 static volatile PID_Mode pid_mode = PID_MODE_CENTER;
@@ -75,7 +76,7 @@ static void PID_ResetEdgePidHistory(void)
     edge_has_last_error = 0U;
 }
 
-static void PID_ResetEdgeHistory(void)
+static void PID_ResetEdgeHistory(void)//这里清除上一个位置了，实际效果不知道好不好
 {
     PID_ResetEdgePidHistory();
     edge_last_position = EDGE_TARGET_POSITION;
@@ -164,14 +165,14 @@ static float PID_CalculateCenterPosition(uint8_t white_bits)
     return (float)position_sum / (float)count;
 }
 
-static uint8_t PID_FindRightEdge(uint8_t white_bits, float *position)
+static uint8_t PID_FindRightEdge(uint8_t white_bits, float *position)//边沿检测
 {
     uint8_t left_sensor;
     uint8_t left_mask;
     uint8_t right_mask;
 
     /* 从第 8 路向第 1 路搜索，取最右侧的“左白、右黑”交界。 */
-    for (left_sensor = 7U; left_sensor > 0U; left_sensor--)
+    for (left_sensor = 7U; left_sensor > 0U; left_sensor--)//从7开始每次减1，减少到1
     {
         left_mask = (uint8_t)(0x80U >> (left_sensor - 1U));
         right_mask = (uint8_t)(0x80U >> left_sensor);
@@ -252,15 +253,15 @@ static void PID_UpdateRightEdge(uint8_t white_bits)
     float kp = edge_kp;
     float ki = edge_ki;
     float kd = edge_kd;
-    float base_speed = edge_base_speed_us;
+    float base_speed = edge_base_speed_us;//用全局变量赋值，没有问题
 
     /* 第 4、5 路为白色且第 6 路为黑色时，边界正好在目标位置。 */
     if (((white_bits & 0x18U) == 0x18U) &&
         ((white_bits & 0x04U) == 0U))
     {
         PID_ResetEdgePidHistory();
-        edge_last_position = EDGE_TARGET_POSITION;
-        edge_has_last_position = 1U;
+        edge_last_position = EDGE_TARGET_POSITION;//这里是宏定义5.5
+        edge_has_last_position = 1U;//标记这个位置是有效的，后面万一丢线，可以用它来判断方向。虽然感觉没用，毕竟情况特殊
         PID_ApplyForward(base_speed, base_speed);
         return;
     }
@@ -272,10 +273,10 @@ static void PID_UpdateRightEdge(uint8_t white_bits)
         if (edge_has_last_position == 0U)
         {
             return;
-        }
+        }//标记生效
 
         error = EDGE_TARGET_POSITION - edge_last_position;
-        if (error > 0.0f)
+        if (error > 0.0f)//中心目标是5.5
         {
             correction = kp * error + edge_lost_extra_us;
         }
@@ -312,7 +313,7 @@ static void PID_UpdateRightEdge(uint8_t white_bits)
     else
     {
         edge_error_sum = 0.0f;
-    }
+    }//超出范围不要
 
     if (edge_has_last_error != 0U)
     {
@@ -334,6 +335,7 @@ void PID_Init(void)
     pid_running = 0U;
     pid_mode = PID_MODE_CENTER;
     pid_stage = PID_STAGE_STOP;
+    angle_wait_ms = PID_ANGLE_WAIT_DEFAULT_MS;
     has_reference = imu_fault_pending = 0U;
     PID_ResetAllHistory();
     Car_Stop();
@@ -514,7 +516,7 @@ void PID_GetParameters(PID_Parameters *parameters)
 {
     uint32_t primask;
 
-    if (parameters == NULL)
+    if (parameters == NULL)//防止空指针
     {
         return;
     }
@@ -568,6 +570,16 @@ uint8_t PID_SetAngleParameter(PID_AngleParameter parameter, float value)
     return 1U;
 }
 
+uint8_t PID_SetAngleWait(uint32_t wait_ms)
+{
+    uint32_t key;
+    if (wait_ms > PID_ANGLE_WAIT_MAX_MS) return 0U;
+    key = PID_EnterCritical();
+    angle_wait_ms = wait_ms;
+    PID_ExitCritical(key);
+    return 1U;
+}
+
 void PID_GetAngleStatus(PID_AngleStatus *status)
 {
     uint32_t key = PID_EnterCritical();
@@ -580,6 +592,7 @@ void PID_GetAngleStatus(PID_AngleStatus *status)
     status->right_deg = angle_right_deg;
     status->kp = angle_kp; status->ki = angle_ki; status->kd = angle_kd;
     status->base_us = angle_base_us;
+    status->wait_ms = angle_wait_ms;
     PID_ExitCritical(key);
 }
 
@@ -622,7 +635,7 @@ void PID_Update20ms(void)
     uint8_t white_bits;
     IMU_State imu;
     uint32_t now;
-    float delta;
+    float delta;//算偏航角
 
     if (!pid_running) return;
     white_bits = (uint8_t)(~IR_Read());
@@ -643,7 +656,7 @@ void PID_Update20ms(void)
         }
         delta = IMU_WrapAngle(imu.yaw_deg - initial_yaw);
         if (pid_stage == PID_STAGE_CENTER &&
-            (uint32_t)(now - start_ms) >= PID_ANGLE_WAIT_MS && white_bits == 0U &&
+            (uint32_t)(now - start_ms) >= angle_wait_ms && white_bits == 0U &&
             delta >= -angle_right_deg && delta <= angle_left_deg)
         {
             PID_ResetAllHistory();
@@ -663,5 +676,5 @@ void PID_Update20ms(void)
         }
     }
     if (pid_mode == PID_MODE_RIGHT_EDGE) PID_UpdateRightEdge(white_bits);
-    else PID_UpdateCenter(white_bits);
+    else PID_UpdateCenter(white_bits);//结尾判断切换模式
 }

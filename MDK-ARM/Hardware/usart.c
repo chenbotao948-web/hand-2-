@@ -31,6 +31,7 @@ static uint8_t tx_overflow;
 static void UART_StartReceive(void);
 static void UART_ProcessLine(char *line);//程序对比表格
 static uint8_t UART_ParseFloat(const char *text, float *value);
+static uint8_t UART_ParseUint32(const char *text, uint32_t *value);
 static void UART_SendCommandResult(const char *line, uint8_t success);
 static void UART_SendPidParameters(void);
 static void UART_SendAngleStatus(void);
@@ -284,6 +285,14 @@ static void UART_ProcessLine(char *line)
         UART_SendAngleStatus();
         return;
     }
+    else if (strncmp(line, "AngleWait=", 10) == 0)
+    {
+        success = UART_ParseUint32(line + 10, &speed);
+        if (success != 0U)
+        {
+            success = PID_SetAngleWait(speed);
+        }
+    }
     else if (strncmp(line, "Angle", 5) == 0)
     {
         PID_AngleParameter parameter;
@@ -385,6 +394,24 @@ static uint8_t UART_ParseFloat(const char *text, float *value)
     return 1U;
 }
 
+static uint8_t UART_ParseUint32(const char *text, uint32_t *value)
+{
+    uint32_t parsed = 0U;
+    uint32_t digit;
+
+    if ((text == NULL) || (value == NULL) || (*text == '\0')) return 0U;
+    while (*text != '\0')
+    {
+        if ((*text < '0') || (*text > '9')) return 0U;
+        digit = (uint32_t)(*text - '0');
+        if (parsed > (0xFFFFFFFFU - digit) / 10U) return 0U;
+        parsed = parsed * 10U + digit;
+        text++;
+    }
+    *value = parsed;
+    return 1U;
+}
+
 static void UART_SendCommandResult(const char *line, uint8_t success)
 {
     UART_SendString(line);
@@ -469,7 +496,7 @@ static void UART_SendAngleStatus(void)
     UART_FormatFloat(c, status.kp); UART_FormatFloat(d, status.ki);
     UART_FormatFloat(e, status.kd); UART_FormatFloat(f, status.base_us);
     sprintf(line, "ANGLE Left=%s Right=%s Kp=%s Ki=%s Kd=%s Base=%s Wait=%lu\n",
-            a, b, c, d, e, f, (unsigned long)PID_ANGLE_WAIT_MS);
+            a, b, c, d, e, f, (unsigned long)status.wait_ms);
     UART_SendString(line);
 }
 

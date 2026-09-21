@@ -4,8 +4,10 @@
 #include "main.h"
 #include "imu.h"
 
-/* 从 Track=1 起计时；单位 ms，后期直接在这里修改。 */
-#define PID_ANGLE_WAIT_MS 20000U
+/* 从 Track=1 起计时；串口可修改 RAM 中的实际值。 */
+#define PID_ANGLE_WAIT_DEFAULT_MS 20000U
+/* 限制在 HAL_GetTick() 无符号差值可靠判断的半个回绕周期内。 */
+#define PID_ANGLE_WAIT_MAX_MS 0x7FFFFFFFU
 
 typedef enum
 {
@@ -30,6 +32,7 @@ typedef struct
     float initial_deg, delta_deg;
     float left_deg, right_deg, kp, ki, kd, base_us;
     uint32_t elapsed_ms;
+    uint32_t wait_ms;
 } PID_AngleStatus;
 
 typedef enum
@@ -76,6 +79,7 @@ uint8_t PID_SetLostExtra(float value);
 void PID_GetParameters(PID_Parameters *parameters);
 void PID_Update20ms(void);
 uint8_t PID_SetAngleParameter(PID_AngleParameter parameter, float value);
+uint8_t PID_SetAngleWait(uint32_t wait_ms);
 void PID_GetAngleStatus(PID_AngleStatus *status);
 uint8_t PID_TakeImuFault(void);
 PID_Stage PID_GetStage(void);
