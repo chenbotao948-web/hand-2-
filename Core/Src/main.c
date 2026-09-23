@@ -116,10 +116,10 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    IMU_Task();
-	 UART_Task();
+    IMU_Task();//实际切换状态机在中断PID_Update20ms()
+	UART_Task();
     IR_Update();
-	 OLED_Show_Project();
+	OLED_Show_Project();
 
 	 //UART_IR();//红外
     /* USER CODE END WHILE */

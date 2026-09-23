@@ -9,11 +9,11 @@ volatile float pid_kd = 0.0f;
 volatile float pid_base_speed_us = 80.0f;
 
 /* 第二套：从右向左搜索白线右侧边界，参数独立调节。 */
-volatile float edge_kp = 40.0f;
+volatile float edge_kp = 30.0f;
 volatile float edge_ki = 0.0f;
 volatile float edge_kd = 0.0f;
-volatile float edge_base_speed_us = 80.0f;
-volatile float edge_lost_extra_us = 20.0f;
+volatile float edge_base_speed_us = 55.0f;
+volatile float edge_lost_extra_us = 30.0f;
 
 /* 左右容差单位 deg；参数仅存 RAM。角度 PID 按每拍累加/差分，周期 20ms。角度pid */
 static float angle_left_deg = 10.0f, angle_right_deg = 10.0f;
@@ -637,7 +637,7 @@ void PID_Update20ms(void)
     uint32_t now;
     float delta;//算偏航角
 
-    if (!pid_running) return;
+    if (!pid_running) return;//停车=1就返回
     white_bits = (uint8_t)(~IR_Read());
     if (pid_stage == PID_STAGE_CENTER || pid_stage == PID_STAGE_ANGLE)
     {
@@ -657,12 +657,12 @@ void PID_Update20ms(void)
         delta = IMU_WrapAngle(imu.yaw_deg - initial_yaw);
         if (pid_stage == PID_STAGE_CENTER &&
             (uint32_t)(now - start_ms) >= angle_wait_ms && white_bits == 0U &&
-            delta >= -angle_right_deg && delta <= angle_left_deg)
+            delta >= -angle_right_deg && delta <= angle_left_deg)/* 等待时间到  8 路全黑 丢线在容差内*/
         {
             PID_ResetAllHistory();
-            pid_stage = PID_STAGE_ANGLE;
+            pid_stage = PID_STAGE_ANGLE;//角度pid模式
         }
-        if (pid_stage == PID_STAGE_ANGLE)
+        if (pid_stage == PID_STAGE_ANGLE)//进入角度pid，如果没有遇到线
         {
             if (white_bits == 0U)
             {
@@ -671,7 +671,7 @@ void PID_Update20ms(void)
             }
             /* 任意一路白色即接管；没有有效边界时沿用 PID2 保持上一拍的行为。 */
             PID_ResetAllHistory();
-            pid_mode = PID_MODE_RIGHT_EDGE;
+            pid_mode = PID_MODE_RIGHT_EDGE;//遇到切换模式
             pid_stage = PID_STAGE_EDGE;
         }
     }
