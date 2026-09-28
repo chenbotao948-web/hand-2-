@@ -4,6 +4,7 @@
 #include "pid.h"
 #include "ir.h"
 #include "imu.h"
+#include "stage.h"
 
 static uint8_t oled_angle_active; /* 页面切换后从首字符重新刷新。 */
 
@@ -684,6 +685,100 @@ void OLED_Init(void)
 	OLED_WriteCommand(0xAF);	//开启显示
 		
 	OLED_Clear();				//OLED清屏（现在调用的是快速清屏）
+}
+
+static void OLED_FormatAngle(char *line, float angle)
+{
+    int32_t tenths = (int32_t)(angle * 10.0f +
+                              ((angle >= 0.0f) ? 0.5f : -0.5f));
+    uint32_t value = (tenths < 0) ? (uint32_t)(-tenths) : (uint32_t)tenths;
+
+    line[5] = (tenths < 0) ? '-' : '+';
+    line[6] = (char)('0' + value / 1000U % 10U);
+    line[7] = (char)('0' + value / 100U % 10U);
+    line[8] = (char)('0' + value / 10U % 10U);
+    line[9] = '.';
+    line[10] = (char)('0' + value % 10U);
+}
+
+static void OLED_FormatElapsedTime(char *line, uint32_t seconds)
+{
+    uint32_t minutes;
+
+    if (seconds > STAGE_MAX_WAIT_SECONDS) seconds = STAGE_MAX_WAIT_SECONDS;
+    minutes = seconds / 60U;
+    seconds %= 60U;
+    line[6] = (char)('0' + minutes / 10U);
+    line[7] = (char)('0' + minutes % 10U);
+    line[9] = (char)('0' + seconds / 10U);
+    line[10] = (char)('0' + seconds % 10U);
+}
+
+/* 主循环调用：每次只刷一个字符，避免占用 IMU 采样时间。 */
+void OLED_ShowIMUAngle(void)
+{
+    static uint32_t last_update = 0U;
+    static uint8_t next_char = 64U;
+    static char lines[4][17] = {
+        "IMU: CAL        ",
+        "YAW: ----.- DEG ",
+        "STAGE: STOP     ",
+        "TIME: 00:00     "
+    };
+    IMU_State imu;
+    uint32_t now = HAL_GetTick();
+    uint8_t i;
+    float angle;
+    const char *status;
+    const char *stage;
+    char character[2];
+
+    if (!oled_angle_active)
+    {
+        oled_angle_active = 1U;
+        next_char = 64U;
+        last_update = now - 100U;
+    }
+
+    if (next_char < 64U)
+    {
+        character[0] = lines[next_char / 16U][next_char % 16U];
+        character[1] = '\0';
+        OLED_ShowString(next_char / 16U + 1U,
+                        next_char % 16U + 1U, character);
+        next_char++;
+        return;
+    }
+
+    if ((uint32_t)(now - last_update) < 100U) return;
+    last_update = now;
+    IMU_GetState(&imu);
+    if (IMU_GetAngle(&angle))
+    {
+        status = "READY";
+        OLED_FormatAngle(lines[1], angle);
+    }
+    else
+    {
+        status = imu.ready ? "STALE" : (imu.fault_count ? "RETRY" : "CAL  ");
+        for (i = 0U; i < 6U; i++) lines[1][5U + i] = "----.-"[i];
+    }
+    for (i = 0U; i < 5U; i++) lines[0][5U + i] = status[i];
+
+    switch (Stage_GetState())
+    {
+        case STAGE_GO:     stage = "GO";     break;
+        case STAGE_STOP:   stage = "STOP";   break;
+        case STAGE_CENTER: stage = "CENTER"; break;
+        case STAGE_ANGLE:  stage = "ANGLE";  break;
+        case STAGE_EDGE:   stage = "EDGE";   break;
+        default:           stage = "UNKNOWN"; break;
+    }
+    for (i = 7U; i < 16U; i++) lines[2][i] = ' ';
+    for (i = 0U; stage[i] != '\0' && i < 9U; i++)
+        lines[2][7U + i] = stage[i];
+    OLED_FormatElapsedTime(lines[3], Stage_GetElapsedSeconds());
+    next_char = 0U;
 }
 
 

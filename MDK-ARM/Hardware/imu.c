@@ -154,6 +154,9 @@ static uint8_t IMU_UpdateAttitude(const ICM42688_Sample *s, float dt, float *yaw
     return (*yaw == *yaw);
 }
 
+/* 主循环非阻塞轮询 IMU：约每 10 ms 取样；未就绪时用静止样本校准。
+ * 读数超时、通信或姿态计算失败时标记故障并定时重试；成功后发布有效 YAW。
+ * 阶段切换由 TIM3 中断中的 Stage_Update() 负责，不在这里执行。 */
 void IMU_Task(void)
 {
     ICM42688_Sample sample;

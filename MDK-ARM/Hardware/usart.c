@@ -5,6 +5,7 @@
 #include "pid.h"
 #include "stage.h"
 static uint8_t UART_ParseFloat(const char *text, float *value);
+static uint8_t UART_ParseTimeSeconds(const char *text, uint16_t *seconds);
 static void UART_SendString(const char *str);
 static void UART_SendResult(const char *line, uint8_t success);
 /*函数提前定义*/
@@ -78,8 +79,15 @@ static void UART_ProcessLine(char *line)
 {
     float value;
     uint8_t success;
-    if (strcmp(line, "STOP") == 0)
+    uint16_t seconds;
+    if (strcmp(line, "run") == 0)
     {
+        Stage_StartRun();
+        UART_SendString("RUN OK\r\n");
+    }
+    else if (strcmp(line, "STOP") == 0)
+    {
+		Stage_ResetRunTimer();
 		Stage_SetState(STAGE_STOP);
 
         HAL_UART_Transmit(&huart1,
@@ -90,6 +98,7 @@ static void UART_ProcessLine(char *line)
 
     else if (strcmp(line, "GO") == 0)
     {
+		Stage_ResetRunTimer();
 		Stage_SetState(STAGE_GO);
 
         HAL_UART_Transmit(&huart1,
@@ -99,6 +108,7 @@ static void UART_ProcessLine(char *line)
     }
 	    else if (strcmp(line, "CENTER") == 0)
     {
+		Stage_ResetRunTimer();
 		Stage_SetState(STAGE_CENTER);
 
         HAL_UART_Transmit(&huart1,
@@ -107,6 +117,12 @@ static void UART_ProcessLine(char *line)
                           100U);
     }
 
+	else if (strncmp(line, "Time=", 5) == 0)
+	{
+		success = UART_ParseTimeSeconds(line + 5, &seconds);
+		if (success != 0U) success = Stage_SetWaitSeconds(seconds);
+		UART_SendResult(line, success);
+	}
 	else if (strncmp(line, "Kp=", 3) == 0)
 	{
 		success = UART_ParseFloat(line + 3, &value);
@@ -267,6 +283,7 @@ else if (strcmp(line, "PID?") == 0)
 {
     if (strcmp(line + 6, "CENTER") == 0)
     {
+        Stage_ResetRunTimer();
         Stage_SetState(STAGE_CENTER);
 
         HAL_UART_Transmit(&huart1,
@@ -277,6 +294,7 @@ else if (strcmp(line, "PID?") == 0)
 
     else if (strcmp(line + 6, "ANGLE") == 0)
     {
+        Stage_ResetRunTimer();
         Stage_SetState(STAGE_ANGLE);
 
         HAL_UART_Transmit(&huart1,
@@ -287,6 +305,7 @@ else if (strcmp(line, "PID?") == 0)
 
     else if (strcmp(line + 6, "EDGE") == 0)
     {
+        Stage_ResetRunTimer();
         Stage_SetState(STAGE_EDGE);
 
         HAL_UART_Transmit(&huart1,
@@ -297,6 +316,7 @@ else if (strcmp(line, "PID?") == 0)
 
     else if (strcmp(line + 6, "STOP") == 0)
     {
+        Stage_ResetRunTimer();
         Stage_SetState(STAGE_STOP);
 
         HAL_UART_Transmit(&huart1,
@@ -364,6 +384,24 @@ static uint8_t UART_ParseFloat(const char *text, float *value)
 
     *value = parsed;
 
+    return 1U;
+}
+
+static uint8_t UART_ParseTimeSeconds(const char *text, uint16_t *seconds)
+{
+    uint32_t parsed = 0U;
+    uint8_t digit;
+
+    if ((text == NULL) || (seconds == NULL) || (*text == '\0')) return 0U;
+    while (*text != '\0')
+    {
+        if ((*text < '0') || (*text > '9')) return 0U;
+        digit = (uint8_t)(*text - '0');
+        if (parsed > (STAGE_MAX_WAIT_SECONDS - digit) / 10U) return 0U;
+        parsed = parsed * 10U + digit;
+        text++;
+    }
+    *seconds = (uint16_t)parsed;
     return 1U;
 }
 			/*发送一串字符*/

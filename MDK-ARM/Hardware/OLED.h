@@ -14,6 +14,7 @@ void OLED_Refresh_Area(uint8_t x, uint8_t y, uint8_t width, uint8_t height); // 
 /* 基础显示函数 */
 void OLED_ShowChar(uint8_t Line, uint8_t Column, char Char);
 void OLED_ShowString(uint8_t Line, uint8_t Column, char *String);
+void OLED_ShowIMUAngle(void);
 void OLED_ShowNum(uint8_t Line, uint8_t Column, uint32_t Number, uint8_t Length);
 void OLED_ShowSignedNum(uint8_t Line, uint8_t Column, int32_t Number, uint8_t Length);
 void OLED_ShowHexNum(uint8_t Line, uint8_t Column, uint32_t Number, uint8_t Length);

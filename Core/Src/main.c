@@ -118,8 +118,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    IMU_Task();//实际切换状态机在中断PID_Update20ms()
+    IMU_Task(); /* 轮询采样、静止校准并发布 YAW；阶段更新在 TIM3 中断。 */
 	UART_Task();
+    OLED_ShowIMUAngle();
     //IR_Update();
 
 	// UART_IR();//红外变化回报，IR=0/1 控制开关

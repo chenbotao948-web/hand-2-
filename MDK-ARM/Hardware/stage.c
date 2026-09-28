@@ -3,43 +3,74 @@
 #include "ir.h"
 #include "stage.h"
 #include "pid.h"
-#include "oled.h"
 
 
-static float angle_left_deg = 10.0f, angle_right_deg = 10.0f;//容忍角度误差
+static float angle_left_deg = 45.0f, angle_right_deg = 45.0f;//容忍角度误差
 static float first_yaw;//出发时的角度
 static Stage_State current_stage;
 uint32_t tim3_pid_tick_count = 0;  /* TIM3 20ms 中断计数，便于调试观察 */
-uint16_t angle_wait=1000;//等待的时间
 float now_yaw;//当前角度
 uint8_t white_bits;//当前灰度
 
+static volatile uint32_t run_start_tick;
+static volatile uint8_t run_timer_active;
+static volatile uint8_t time_gate_unlocked;
+static volatile uint16_t angle_wait_seconds = STAGE_DEFAULT_WAIT_SECONDS;
+
+static uint32_t Stage_Lock(void)
+{
+	uint32_t key = __get_PRIMASK();
+	__disable_irq();
+	return key;
+}
+
+static void Stage_Unlock(uint32_t key)
+{
+	if (key == 0U) __enable_irq();
+}
+
 void  Stage_Init(void)
 {
-	current_stage=STAGE_STOP;
+	current_stage=STAGE_CENTER;
+	run_start_tick = HAL_GetTick();
+	run_timer_active = 0U;
+	time_gate_unlocked = 0U;
+	angle_wait_seconds = STAGE_DEFAULT_WAIT_SECONDS;
 	IMU_GetAngle(&first_yaw);
 	first_yaw=IMU_WrapAngle(first_yaw);
 }
 void  Stage_Update(void)
 {
 	float delta_yaw;
+	uint8_t raw_ir;
 
+	/* IR_Read: black=1, white=0. Use one sample for this control tick. */
+	raw_ir = IR_Read();
+	white_bits = (uint8_t)~raw_ir;
+	//这里搞了一个标志位
+	if ((run_timer_active != 0U) && (time_gate_unlocked == 0U) &&
+	    ((uint32_t)(HAL_GetTick() - run_start_tick) >=
+	     (uint32_t)angle_wait_seconds * 1000U))
+	{
+		time_gate_unlocked = 1U;
+	}
 	IMU_GetAngle(&now_yaw);
 	now_yaw=IMU_WrapAngle(now_yaw);
-	OLED_ShowSignedNum(1,1,now_yaw,4);
-	OLED_ShowSignedNum(2,1,12,4);
 	delta_yaw = IMU_WrapAngle(now_yaw - first_yaw);
 	if(current_stage==STAGE_GO)//一开始没有线，所以要先出发一会儿，等到找到线了，我们就切换下一个状态。
     {
     PWM_LeftSpeed(1420);
 	PWM_RightSpeed(1580);
-		if(!IR_Read())
+		if(raw_ir != 0xFF)
 		{
 			current_stage=STAGE_CENTER;
 		}
     }
 
-	if(current_stage==STAGE_CENTER &&  tim3_pid_tick_count>angle_wait && delta_yaw >= -angle_right_deg && delta_yaw <= angle_left_deg && IR_Read() == 0xFF)
+	if((current_stage==STAGE_CENTER) && (run_timer_active != 0U) &&
+	   (time_gate_unlocked != 0U) &&
+	   (delta_yaw >= -angle_right_deg) && (delta_yaw <= angle_left_deg) &&
+	   (raw_ir == 0xFFU))//如果上一个状态是中心检测角度在误差的容忍状态之内，识别到的的线就是全黑，时间也允许
     {
 		current_stage=STAGE_ANGLE;
 		angle_turn_done = 0U;
@@ -49,7 +80,6 @@ void  Stage_Update(void)
 	
 	if(current_stage==STAGE_CENTER)//中心状态
     {
-	    white_bits = (~IR_Read());
 		PID_UpdateCenter(white_bits);
 		return;
     }
@@ -148,4 +178,67 @@ void Stage_SetState(Stage_State state)
 Stage_State Stage_GetState(void)
 {
     return current_stage;
+}
+/**
+ * @brief（简介）发送串口run进行一系列操作。
+ * @param  （参数）
+ * @retval （返回值）
+ * @note  （说明）
+ */
+void Stage_StartRun(void)
+{
+	uint32_t key = Stage_Lock();
+	run_start_tick = HAL_GetTick();
+	run_timer_active = 1U;
+	time_gate_unlocked = (angle_wait_seconds == 0U) ? 1U : 0U;
+	Stage_SetState(STAGE_GO);
+	Stage_Unlock(key);
+}
+/**//**
+ * @brief（简介）时间停止
+ * @param  （参数）
+ * @retval （返回值）
+ * @note  （说明）换状态的时候会调用一次
+ */
+void Stage_ResetRunTimer(void)
+{
+	uint32_t key = Stage_Lock();
+	run_timer_active = 0U;
+	time_gate_unlocked = 0U;
+	Stage_Unlock(key);
+}
+
+uint8_t Stage_SetWaitSeconds(uint16_t seconds)
+{
+	uint32_t key;
+	uint32_t elapsed_ms;
+	if (seconds > STAGE_MAX_WAIT_SECONDS) return 0U;
+	key = Stage_Lock();
+	angle_wait_seconds = seconds;
+	if (run_timer_active != 0U)
+	{
+		elapsed_ms = (uint32_t)(HAL_GetTick() - run_start_tick);
+		time_gate_unlocked = (elapsed_ms >= (uint32_t)seconds * 1000U) ? 1U : 0U;
+	}
+	else
+	{
+		time_gate_unlocked = 0U;
+	}
+	Stage_Unlock(key);
+	return 1U;
+}
+/**
+ * @brief（简介）已经过了几秒
+ * @param  （参数）
+ * @retval （返回值）经过的时间
+ * @note  （说明）它的这个词是串口发送忘之后开始计时，开始算时间。
+ */
+uint32_t Stage_GetElapsedSeconds(void)
+{
+	uint32_t key = Stage_Lock();
+	uint32_t elapsed_ms = 0U;
+	if (run_timer_active != 0U)
+		elapsed_ms = (uint32_t)(HAL_GetTick() - run_start_tick);
+	Stage_Unlock(key);
+	return elapsed_ms / 1000U;
 }

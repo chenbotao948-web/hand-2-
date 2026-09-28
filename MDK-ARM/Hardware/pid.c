@@ -7,7 +7,7 @@
 volatile float pid_kp = 40.0f;
 volatile float pid_ki = 0.0f;
 volatile float pid_kd = 0.0f;
-volatile float pid_base_speed_us = 80.0f;
+volatile float pid_base_speed_us = 55.0f;
 
 static float center_error_sum = 0.0f;
 static float center_last_error = 0.0f;
