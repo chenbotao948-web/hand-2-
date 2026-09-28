@@ -3,6 +3,9 @@
 #include "OLED_Font.h"
 #include "pid.h"
 #include "ir.h"
+#include "imu.h"
+
+static uint8_t oled_angle_active; /* 页面切换后从首字符重新刷新。 */
 
 /*引脚配置*/
 #define OLED_W_SCL(x)		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, (GPIO_PinState)(x))
@@ -505,81 +508,6 @@ void OLED_ShowNum(uint8_t Line, uint8_t Column, uint32_t Number, uint8_t Length)
 	OLED_Refresh_Area(col_start, (Line - 1) * 16, Length * 8, 16);
 }
 
-/**
-  * @brief  显示项目运行参数
-  * @note   调用前先执行 IR_Update()；本函数内部限制为每 100ms 刷新一次。
-  */
-void OLED_Show_Project(void)
-{
-	static uint32_t last_refresh_tick = 0U;
-	static uint8_t first_refresh = 1U;
-	uint32_t now = HAL_GetTick();
-	PID_Parameters parameters;
-	static char lines[4][17];
-    char *line1 = lines[0], *line2 = lines[1], *line3 = lines[2], *line4 = lines[3];
-    static uint8_t next_char = 64U;
-    char character[2];
-	uint8_t i;
-
-    /* 每次主循环只刷新一个字符，让 IMU_Task 在字符之间获得执行机会。 */
-    if (next_char < 64U)
-    {
-        character[0] = lines[next_char / 16U][next_char % 16U];
-        character[1] = '\0';
-        OLED_ShowString(next_char / 16U + 1U, next_char % 16U + 1U, character);
-        next_char++;
-        return;
-    }
-	if ((first_refresh == 0U) &&
-		((uint32_t)(now - last_refresh_tick) < OLED_PROJECT_REFRESH_MS))
-	{
-		return;
-	}
-	first_refresh = 0U;
-	last_refresh_tick = now;
-
-	PID_GetParameters(&parameters);
-	OLED_ProjectClearLine(line1);
-	OLED_ProjectClearLine(line2);
-	OLED_ProjectClearLine(line3);
-	OLED_ProjectClearLine(line4);
-
-	line1[0] = 'P';
-	OLED_ProjectWriteValue(line1, 1U, parameters.kp);
-	line1[8] = 'I';
-	OLED_ProjectWriteValue(line1, 9U, parameters.ki);
-
-	line2[0] = 'D';
-	OLED_ProjectWriteValue(line2, 1U, parameters.kd);
-	line2[8] = 'B';
-	OLED_ProjectWriteValue(line2, 9U, parameters.base_speed_us);
-
-	line3[0] = 'I';
-	line3[1] = 'R';
-	line3[2] = ':';
-	for (i = 0U; i < 8U; i++)
-	{
-		line3[3U + i] = (ir_data[i] != 0U) ? '1' : '0';
-	}
-
-	line4[0] = 'M';
-	line4[1] = 'O';
-	line4[2] = 'D';
-	line4[3] = 'E';
-	line4[4] = ':';
-	line4[5] = (parameters.mode == PID_MODE_RIGHT_EDGE) ? '1' : '0';
-    if (PID_GetStage() == PID_STAGE_ANGLE) line4[5] = 'A';
-	line4[6] = ' ';
-	line4[7] = 'T';
-	line4[8] = 'R';
-	line4[9] = 'A';
-	line4[10] = 'C';
-	line4[11] = 'K';
-	line4[12] = ':';
-	line4[13] = (parameters.running != 0U) ? '1' : '0';
-
-    next_char = 0U;
-}
 
 /**
   * @brief  OLED显示有符号数字（优化版）
@@ -757,3 +685,6 @@ void OLED_Init(void)
 		
 	OLED_Clear();				//OLED清屏（现在调用的是快速清屏）
 }
+
+
+

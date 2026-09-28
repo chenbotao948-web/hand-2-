@@ -57,7 +57,7 @@
 
 /* USER CODE END 0 */
 
-/* SPI2: PB13=SCK, PB14=MISO, PB15=MOSI；PA2 软件片选在 MX_GPIO_Init。 */
+/* SPI2: PB13=SCK, PB14=MISO, PB15=MOSI；PC10 软件片选在 MX_GPIO_Init。 */
 void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi)
 {
   GPIO_InitTypeDef gpio = {0};

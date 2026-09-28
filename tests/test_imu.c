@@ -16,12 +16,16 @@ int main(void)
 {
     unsigned i;
     IMU_State state;
+    float angle = 1234.0f;
     input.accel[2] = 1000.0f;
     input.gyro[2] = 1.0f; /* 静止零偏，校准后应被扣除。 */
     IMU_Init();
     for (i = 0; i < 99; i++) step();
     IMU_GetState(&state); CHECK(!state.ready);
+    CHECK(!IMU_GetAngle(&angle) && angle == 1234.0f);
+    CHECK(!IMU_GetAngle(NULL));
     step(); IMU_GetState(&state); CHECK(state.ready && state.healthy);
+    CHECK(IMU_GetAngle(&angle) && fabsf(angle - state.yaw_deg) < 0.01f);
     for (i = 0; i < 100; i++) step();
     IMU_GetState(&state); CHECK(fabsf(state.yaw_deg) < 0.01f);
     input.gyro[2] = 91.0f;
@@ -32,6 +36,7 @@ int main(void)
     CHECK(fabsf(state.yaw_deg + 91.8f) < 0.1f && state.max_gap_ms == 20U);
     read_result = -1; step(); IMU_GetState(&state);
     CHECK(!state.ready && !state.healthy && state.fault_count == 1U);
+    CHECK(!IMU_GetAngle(&angle));
     read_result = 1; input.gyro[2] = 1; tick += 1000; IMU_Task();
     for (i = 0; i < 100; i++) step();
     IMU_GetState(&state); CHECK(state.ready && state.fault_count == 1U);

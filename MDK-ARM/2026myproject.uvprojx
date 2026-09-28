@@ -730,6 +730,16 @@
               <FileType>5</FileType>
               <FilePath>.\Hardware\OLED_Font.h</FilePath>
             </File>
+            <File>
+              <FileName>stage.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\stage.c</FilePath>
+            </File>
+            <File>
+              <FileName>stage.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\stage.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

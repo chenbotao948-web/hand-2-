@@ -36,6 +36,18 @@ void IMU_GetState(IMU_State *state)
     IMU_Unlock(key);
 }
 
+uint8_t IMU_GetAngle(float *angle)
+{
+    IMU_State state;
+    if (angle == NULL) return 0U;
+    IMU_GetState(&state);
+    if (!state.ready || !state.healthy ||
+        (uint32_t)(HAL_GetTick() - state.sample_ms) > IMU_STALE_MS)
+        return 0U;
+    *angle = state.yaw_deg;
+    return 1U;
+}
+
 float IMU_WrapAngle(float degrees)
 {
     while (degrees >= 180.0f) degrees -= 360.0f;
@@ -184,3 +196,4 @@ void IMU_Task(void)
     published = state;
     IMU_Unlock(key);
 }
+

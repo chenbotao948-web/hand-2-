@@ -26,7 +26,7 @@
 │     ├─ pwm.c / pwm.h             # PWM 模块
 │     ├─ usart.c / usart.h         # 串口模块
 │     ├─ ir.c / ir.h               # 红外读取模块
-│     ├─ pid.c / pid.h             # 20ms 中心循迹→角度控制→右边界循迹
+│     ├─ pid.c / pid.h             # 20ms 中心循迹→对准→角度直行→右边界循迹
 │     ├─ icm42688.c / icm42688.h   # HAL SPI2 陀螺仪驱动
 │     ├─ imu.c / imu.h             # 静止校准、航向解算和数据有效性
 │     └─ OLED.c / OLED.h           # OLED 显示，运行时逐字符刷新

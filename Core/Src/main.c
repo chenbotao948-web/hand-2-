@@ -27,6 +27,8 @@
 #include "ir.h"
 #include "oled.h"
 #include "imu.h"
+#include "stage.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,7 +54,7 @@ TIM_HandleTypeDef htim3;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
-volatile uint32_t tim3_pid_tick_count = 0;  /* TIM3 20ms 中断计数，便于调试观察 */
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -106,8 +108,8 @@ int main(void)
 	PWM_Init();
 	OLED_Init();
 	UART_Init();
-	PID_Init();
 	IMU_Init(); /* 上电停车，主循环静止校准后等待 Track=1。 */
+	Stage_Init();
 	__HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
 	__HAL_TIM_ENABLE_IT(&htim3, TIM_IT_UPDATE);
   /* USER CODE END 2 */
@@ -118,10 +120,9 @@ int main(void)
   {
     IMU_Task();//实际切换状态机在中断PID_Update20ms()
 	UART_Task();
-    IR_Update();
-	OLED_Show_Project();
+    //IR_Update();
 
-	 //UART_IR();//红外
+	// UART_IR();//红外变化回报，IR=0/1 控制开关
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -168,7 +169,7 @@ void SystemClock_Config(void)
   }
 }
 
-/** SPI2 保留参考接线：PB13 SCK / PB14 MISO / PB15 MOSI / PA2 CS。
+/** SPI2 保留参考接线：PB13 SCK / PB14 MISO / PB15 MOSI / PC10 CS。
   * 与 .ioc 同步；重新生成时由 CubeMX 维护本初始化函数。 */
 static void MX_SPI2_Init(void)
 {
@@ -310,7 +311,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
-  /* PA2 片选上电先拉高，避免误选中；引脚在 .ioc 同步维护。 */
+  /* PC10 片选上电先拉高，避免误选中；引脚在 .ioc 同步维护。 */
   HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_SET);
   GPIO_InitStruct.Pin = IMU_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -338,7 +339,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 /**
   * @brief  TIM3 20ms 周期中断回调
-  * @note   PID 执行顺序：读取红外 -> 计算偏差 -> PID -> 更新 PWM。
+  * @note   按当前阶段读取红外或已发布角度，计算 PID 并更新 PWM。
   *         此处不要进行串口发送、屏幕刷新、字符串格式化或延时。
   */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -346,7 +347,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim->Instance == TIM3)
   {
     tim3_pid_tick_count++;
-    PID_Update20ms();
+    Stage_Update();
   }
 }
 /* USER CODE END 4 */

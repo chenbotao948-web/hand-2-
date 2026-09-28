@@ -35,5 +35,10 @@ void PWM_Init(void)
 	PWM_LeftSpeed(1500);
 	PWM_RightSpeed(1500);
 	PWM_Start();
+}
 
+void Car_Stop(void)
+{
+	PWM_LeftSpeed(1500);
+	PWM_RightSpeed(1500);
 }

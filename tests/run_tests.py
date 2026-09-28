@@ -23,7 +23,7 @@ from unicorn.arm_const import UC_ARM_REG_SP, UC_ARM_REG_LR
 root = pathlib.Path(__file__).resolve().parents[1]
 includes = ['Core/Inc', 'MDK-ARM/Hardware', 'Drivers/STM32F1xx_HAL_Driver/Inc',
             'Drivers/CMSIS/Include', 'Drivers/CMSIS/Device/ST/STM32F1xx/Include']
-suites = {'control': ['pid.c', 'usart.c'], 'imu': ['imu.c'],
+suites = {'control': ['pid.c', 'usart.c'], 'stage': ['pid.c', 'usart.c'], 'imu': ['imu.c'],
           'driver': ['icm42688.c', 'imu.c', 'pid.c']}
 
 with tempfile.TemporaryDirectory(prefix='car-control-tests-') as temporary:

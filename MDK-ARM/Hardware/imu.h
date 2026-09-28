@@ -5,7 +5,7 @@
 
 #define IMU_SAMPLE_PERIOD_MS   10U
 #define IMU_STALE_MS          100U
-/* 统一成车体左转为正。若 Angle? 显示左转为负，停车后改成 -1.0f。 */
+/* 当前安装下原始 Yaw 左转减小；TurnTo/AngleTarget 的正号由控制端换算。 */
 #define IMU_YAW_SIGN            1.0f
 
 typedef struct
@@ -21,6 +21,8 @@ typedef struct
 void IMU_Init(void);
 void IMU_Task(void);
 void IMU_GetState(IMU_State *state);
+/* 返回 1 表示角度有效；返回 0 时不修改 *angle。 */
+uint8_t IMU_GetAngle(float *angle);
 float IMU_WrapAngle(float degrees);
 
 #endif

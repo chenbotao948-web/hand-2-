@@ -4,55 +4,32 @@
 #include "main.h"
 #include "imu.h"
 
-/* 从 Track=1 起计时；串口可修改 RAM 中的实际值。 */
-#define PID_ANGLE_WAIT_DEFAULT_MS 20000U
-/* 限制在 HAL_GetTick() 无符号差值可靠判断的半个回绕周期内。 */
-#define PID_ANGLE_WAIT_MAX_MS 0x7FFFFFFFU
 
-typedef enum
-{
-    PID_STAGE_STOP = 0,
-    PID_STAGE_CENTER,
-    PID_STAGE_ANGLE,
-    PID_STAGE_EDGE,
-    PID_STAGE_MANUAL,
-    PID_STAGE_FAULT
-} PID_Stage;
+/* 中心循迹 */
+void PID_UpdateCenter(uint8_t white_bits);
 
-typedef enum
-{
-    PID_ANGLE_LEFT, PID_ANGLE_RIGHT, PID_ANGLE_KP,
-    PID_ANGLE_KI, PID_ANGLE_KD, PID_ANGLE_BASE
-} PID_AngleParameter;
+/* 角度控制 */
+void PID_UpdateAngle(float yaw);
 
-typedef struct
-{
-    IMU_State imu;
-    PID_Stage stage;
-    float initial_deg, delta_deg;
-    float left_deg, right_deg, kp, ki, kd, base_us;
-    uint32_t elapsed_ms;
-    uint32_t wait_ms;
-} PID_AngleStatus;
+/* 原地转向相关 */
+void PID_ResetTurnHistory(void);
 
-typedef enum
-{
-    PID_MODE_CENTER = 0,
-    PID_MODE_RIGHT_EDGE = 1
-} PID_Mode;
+/* Angle 阶段是否已经完成原地转向 */
+extern uint8_t angle_turn_done;
 
-/* 原白线中心循迹参数。 */
-extern volatile float pid_kp;
-extern volatile float pid_ki;
-extern volatile float pid_kd;
-extern volatile float pid_base_speed_us;
+//目标角度
+extern float angle_target_yaw;   // 目标 yaw
 
-/* 右侧边界循迹参数，与原循迹参数独立。 */
-extern volatile float edge_kp;
-extern volatile float edge_ki;
-extern volatile float edge_kd;
-extern volatile float edge_base_speed_us;
-extern volatile float edge_lost_extra_us;
+void PID_ResetEdgeHistory(void);//边沿参数清除|
+
+void PID_UpdateRightEdge(uint8_t white_bits);//边沿检测代码
+/*中心pid*/
+uint8_t PID_SetKp(float value);
+uint8_t PID_SetKi(float value);
+uint8_t PID_SetKd(float value);
+uint8_t PID_SetBaseSpeed(float value);
+/*读取*/
+float PID_GetKp(void);
 
 typedef struct
 {
@@ -60,28 +37,7 @@ typedef struct
     float ki;
     float kd;
     float base_speed_us;
-    float lost_extra_us;
-    PID_Mode mode;
-    uint8_t running;
-} PID_Parameters;
+} PID_Parameters;//结构体
 
-void PID_Init(void);
-uint8_t PID_Start(void);
-void PID_Stop(void);
-uint8_t PID_IsRunning(void);
-uint8_t PID_SetMode(PID_Mode mode);
-PID_Mode PID_GetMode(void);
-uint8_t PID_SetKp(float value);
-uint8_t PID_SetKi(float value);
-uint8_t PID_SetKd(float value);
-uint8_t PID_SetBaseSpeed(float value);
-uint8_t PID_SetLostExtra(float value);
 void PID_GetParameters(PID_Parameters *parameters);
-void PID_Update20ms(void);
-uint8_t PID_SetAngleParameter(PID_AngleParameter parameter, float value);
-uint8_t PID_SetAngleWait(uint32_t wait_ms);
-void PID_GetAngleStatus(PID_AngleStatus *status);
-uint8_t PID_TakeImuFault(void);
-PID_Stage PID_GetStage(void);
-
 #endif

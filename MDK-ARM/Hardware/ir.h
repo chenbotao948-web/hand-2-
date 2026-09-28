@@ -12,7 +12,7 @@
 uint8_t IR_Read(void);
 extern uint8_t ir_data[8];
 void IR_Update(void);
-
+extern volatile uint8_t ir_state;
 /* ir.h */
 
 #endif
