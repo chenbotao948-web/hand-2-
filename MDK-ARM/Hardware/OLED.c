@@ -769,6 +769,7 @@ void OLED_ShowIMUAngle(void)
     {
         case STAGE_GO:     stage = "GO";     break;
         case STAGE_STOP:   stage = "STOP";   break;
+        case STAGE_CATCH:  stage = "CATCH";  break;
         case STAGE_CENTER: stage = "CENTER"; break;
         case STAGE_ANGLE:  stage = "ANGLE";  break;
         case STAGE_EDGE:   stage = "EDGE";   break;

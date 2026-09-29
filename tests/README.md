@@ -27,3 +27,14 @@ python tests/run_tests.py --deps "$env:TEMP/2026myproject-test-deps"
   超过100ms持续异常触发停车，以及恢复校准后必须重新启动。
 
 仿真不能验证实际 SPI 时序、传感器安装方向、车辆动力学或实机采样抖动。
+
+## 当前 CATCH 定时回归
+
+`run_catch_current.py` 单独编译当前工程的 `stage.c` 和 `usart.c`，在 Cortex-M3 仿真器中检查定时拾取、停车、返回 CENTER、运行中修改时间、重复 `run`、`STOP` 和串口参数边界。运行命令：
+
+```powershell
+python -m pip install --target "$env:TEMP/hand-catch-test-deps" unicorn pyelftools
+python tests/run_catch_current.py --deps "$env:TEMP/hand-catch-test-deps"
+```
+
+上面的旧 `run_tests.py` 使用另一套 `PID_STAGE_*` 接口，不能作为当前 CATCH 功能的回归结果。

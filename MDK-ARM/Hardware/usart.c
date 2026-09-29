@@ -117,6 +117,25 @@ static void UART_ProcessLine(char *line)
                           100U);
     }
 
+	/* SpeedTime= 调整 run 后 CENTER 的减速秒数；Time= 仍控制阶段切换。 */
+	else if (strncmp(line, "SpeedTime=", 10) == 0)
+{
+    success = UART_ParseTimeSeconds(line + 10, &seconds);
+    if (success != 0U) success = Stage_SetSpeedTimeSeconds(seconds);
+    UART_SendResult(line, success);
+}
+	else if (strncmp(line, "CatchTime=", 10) == 0)
+	{
+		success = UART_ParseTimeSeconds(line + 10, &seconds);
+		if (success != 0U) success = Stage_SetCatchTimeSeconds(seconds);
+		UART_SendResult(line, success);
+	}
+	else if (strncmp(line, "CatchDuration=", 14) == 0)
+	{
+		success = UART_ParseTimeSeconds(line + 14, &seconds);
+		if (success != 0U) success = Stage_SetCatchDurationSeconds(seconds);
+		UART_SendResult(line, success);
+	}
 	else if (strncmp(line, "Time=", 5) == 0)
 	{
 		success = UART_ParseTimeSeconds(line + 5, &seconds);
@@ -161,6 +180,7 @@ static void UART_ProcessLine(char *line)
 		UART_SendResult(line, success);
 	}
 
+		/* Base= 在 CENTER 中会被定时速度 80/50 于下一个控制周期覆盖。 */
 		else if (strncmp(line, "Base=", 5) == 0)
 	{
 		success = UART_ParseFloat(line + 5, &value);
@@ -247,6 +267,13 @@ else if (strcmp(line, "PID?") == 0)
         HAL_UART_Transmit(&huart1,
                           (uint8_t *)"STATE=GO\r\n",
                           10U,
+                          100U);
+    }
+    else if (state == STAGE_CATCH)
+    {
+        HAL_UART_Transmit(&huart1,
+                          (uint8_t *)"STATE=CATCH\r\n",
+                          13U,
                           100U);
     }
     else if (state == STAGE_CENTER)
