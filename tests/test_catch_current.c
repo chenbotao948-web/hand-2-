@@ -95,5 +95,34 @@ int main(void)
     update_at(50020U); CHECK(Stage_GetState() == STAGE_CATCH);
     tick = 50040U; command("run\n"); CHECK(Stage_GetState() == STAGE_GO);
     update_at(50060U); CHECK(Stage_GetState() == STAGE_CATCH);
+
+    /* CatchTime accepts integer seconds and up to two decimal places. */
+    command("CatchTime=1\n"); CHECK(strcmp(reply, "CatchTime=1 OK\r\n") == 0);
+    tick = 60000U; command("run\n"); update_at(60020U);
+    update_at(60999U); CHECK(Stage_GetState() == STAGE_CENTER);
+    update_at(61000U); CHECK(Stage_GetState() == STAGE_CATCH);
+
+    command("CatchTime=1.5\n"); CHECK(strcmp(reply, "CatchTime=1.5 OK\r\n") == 0);
+    tick = 70000U; command("run\n"); update_at(70020U);
+    update_at(71499U); CHECK(Stage_GetState() == STAGE_CENTER);
+    update_at(71500U); CHECK(Stage_GetState() == STAGE_CATCH);
+
+    command("CatchTime=1.25\n"); CHECK(strcmp(reply, "CatchTime=1.25 OK\r\n") == 0);
+    tick = 80000U; command("run\n"); update_at(80020U);
+    update_at(81240U); CHECK(Stage_GetState() == STAGE_CENTER);
+    update_at(81260U); CHECK(Stage_GetState() == STAGE_CATCH);
+
+    command("CatchTime=0.01\n"); CHECK(strcmp(reply, "CatchTime=0.01 OK\r\n") == 0);
+    tick = 90000U; command("run\n"); update_at(90020U);
+    CHECK(Stage_GetState() == STAGE_CATCH); /* Next 20 ms control tick. */
+
+    command("CatchTime=5999.00\n"); CHECK(strstr(reply, " OK\r\n") != 0);
+    command("CatchTime=5999.01\n"); CHECK(strstr(reply, " ERR\r\n") != 0);
+    command("CatchTime=1.234\n"); CHECK(strstr(reply, " ERR\r\n") != 0);
+    command("CatchTime=1.\n"); CHECK(strstr(reply, " ERR\r\n") != 0);
+    command("CatchTime=.5\n"); CHECK(strstr(reply, " ERR\r\n") != 0);
+    command("CatchDuration=1.5\n"); CHECK(strstr(reply, " ERR\r\n") != 0);
+    command("Time=1.5\n"); CHECK(strstr(reply, " ERR\r\n") != 0);
+    command("SpeedTime=1.5\n"); CHECK(strstr(reply, " ERR\r\n") != 0);
     return 0;
 }

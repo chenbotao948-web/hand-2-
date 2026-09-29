@@ -16,7 +16,7 @@ static volatile uint32_t run_start_tick;
 static volatile uint8_t run_timer_active;
 static volatile uint8_t catch_flag;
 static volatile uint32_t catch_start_tick;//抓取开始那一刻的时间，不用改，主要后面两个
-static volatile uint16_t catch_entry_seconds = STAGE_DEFAULT_CATCH_TIME_SECONDS;//什么时候开始抓取
+static volatile uint32_t catch_entry_ms = (uint32_t)STAGE_DEFAULT_CATCH_TIME_SECONDS * 1000U;//什么时候开始抓取
 static volatile uint16_t catch_duration_seconds = STAGE_DEFAULT_CATCH_DURATION_SECONDS;//抓取持续时间
 
 static volatile uint8_t time_gate_unlocked;
@@ -44,7 +44,7 @@ void  Stage_Init(void)
 	time_gate_unlocked = 0U;
 	angle_wait_seconds = STAGE_DEFAULT_WAIT_SECONDS;
 	center_slowdown_seconds = STAGE_DEFAULT_SPEED_TIME_SECONDS;
-	catch_entry_seconds = STAGE_DEFAULT_CATCH_TIME_SECONDS;
+	catch_entry_ms = (uint32_t)STAGE_DEFAULT_CATCH_TIME_SECONDS * 1000U;
 	catch_duration_seconds = STAGE_DEFAULT_CATCH_DURATION_SECONDS;
 	catch_flag = 0U;
 	catch_start_tick = 0U;
@@ -83,7 +83,7 @@ void  Stage_Update(void)
 	if ((current_stage == STAGE_CENTER) && (run_timer_active != 0U) &&
 	    (catch_flag == 0U) &&
 	    ((uint32_t)(HAL_GetTick() - run_start_tick) >=
-	     (uint32_t)catch_entry_seconds * 1000U))//什么时候开始抓取
+	     catch_entry_ms))//什么时候开始抓取
 	{
 		catch_flag = 1U;
 		Stage_SetState(STAGE_CATCH);
@@ -291,14 +291,19 @@ uint8_t Stage_SetSpeedTimeSeconds(uint16_t seconds)
 }
 
 /* 串口运行中修改秒数时保留 run 或 CATCH 已计时间。 */
-uint8_t Stage_SetCatchTimeSeconds(uint16_t seconds)
+uint8_t Stage_SetCatchTimeMilliseconds(uint32_t milliseconds)
 {
     uint32_t key;
-    if (seconds > STAGE_MAX_WAIT_SECONDS) return 0U;
+    if (milliseconds > (uint32_t)STAGE_MAX_WAIT_SECONDS * 1000U) return 0U;
     key = Stage_Lock();
-    catch_entry_seconds = seconds;
+    catch_entry_ms = milliseconds;
     Stage_Unlock(key);
     return 1U;
+}
+
+uint8_t Stage_SetCatchTimeSeconds(uint16_t seconds)
+{
+    return Stage_SetCatchTimeMilliseconds((uint32_t)seconds * 1000U);
 }
 
 uint8_t Stage_SetCatchDurationSeconds(uint16_t seconds)

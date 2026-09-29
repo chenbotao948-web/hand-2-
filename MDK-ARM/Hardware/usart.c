@@ -6,6 +6,7 @@
 #include "stage.h"
 static uint8_t UART_ParseFloat(const char *text, float *value);
 static uint8_t UART_ParseTimeSeconds(const char *text, uint16_t *seconds);
+static uint8_t UART_ParseCatchTimeMilliseconds(const char *text, uint32_t *milliseconds);
 static void UART_SendString(const char *str);
 static void UART_SendResult(const char *line, uint8_t success);
 /*函数提前定义*/
@@ -80,6 +81,7 @@ static void UART_ProcessLine(char *line)
     float value;
     uint8_t success;
     uint16_t seconds;
+    uint32_t catch_time_ms;
     if (strcmp(line, "run") == 0)
     {
         Stage_StartRun();
@@ -126,8 +128,8 @@ static void UART_ProcessLine(char *line)
 }
 	else if (strncmp(line, "CatchTime=", 10) == 0)
 	{
-		success = UART_ParseTimeSeconds(line + 10, &seconds);
-		if (success != 0U) success = Stage_SetCatchTimeSeconds(seconds);
+		success = UART_ParseCatchTimeMilliseconds(line + 10, &catch_time_ms);
+		if (success != 0U) success = Stage_SetCatchTimeMilliseconds(catch_time_ms);
 		UART_SendResult(line, success);
 	}
 	else if (strncmp(line, "CatchDuration=", 14) == 0)
@@ -411,6 +413,39 @@ static uint8_t UART_ParseFloat(const char *text, float *value)
 
     *value = parsed;
 
+    return 1U;
+}
+
+/* CatchTime= 接受整数或一到两位小数，按 10 ms 整数单位解析，避免浮点误差。 */
+static uint8_t UART_ParseCatchTimeMilliseconds(const char *text, uint32_t *milliseconds)
+{
+    uint32_t whole = 0U;
+    uint32_t hundredths = 0U;
+    uint8_t decimals = 0U;
+    uint8_t digit;
+
+    if ((text == NULL) || (milliseconds == NULL) || (*text < '0') || (*text > '9')) return 0U;
+    while ((*text >= '0') && (*text <= '9'))
+    {
+        digit = (uint8_t)(*text - '0');
+        if (whole > (STAGE_MAX_WAIT_SECONDS - digit) / 10U) return 0U;
+        whole = whole * 10U + digit;
+        text++;
+    }
+    if (*text == '.')
+    {
+        text++;
+        while ((*text >= '0') && (*text <= '9') && (decimals < 2U))
+        {
+            hundredths = hundredths * 10U + (uint8_t)(*text - '0');
+            decimals++;
+            text++;
+        }
+        if (decimals == 0U) return 0U;
+        if (decimals == 1U) hundredths *= 10U;
+    }
+    if ((*text != '\0') || ((whole == STAGE_MAX_WAIT_SECONDS) && (hundredths != 0U))) return 0U;
+    *milliseconds = whole * 1000U + hundredths * 10U;
     return 1U;
 }
 

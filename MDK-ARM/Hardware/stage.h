@@ -32,6 +32,7 @@ void Stage_ResetRunTimer(void);
 uint8_t Stage_SetWaitSeconds(uint16_t seconds);
 uint8_t Stage_SetSpeedTimeSeconds(uint16_t seconds);
 uint8_t Stage_SetCatchTimeSeconds(uint16_t seconds);
+uint8_t Stage_SetCatchTimeMilliseconds(uint32_t milliseconds);
 uint8_t Stage_SetCatchDurationSeconds(uint16_t seconds);
 uint32_t Stage_GetElapsedSeconds(void);
 #endif
