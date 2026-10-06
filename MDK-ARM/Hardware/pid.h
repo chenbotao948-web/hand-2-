@@ -27,9 +27,16 @@ void PID_UpdateRightEdge(uint8_t white_bits);//边沿检测代码
 uint8_t PID_SetKp(float value);
 uint8_t PID_SetKi(float value);
 uint8_t PID_SetKd(float value);
-uint8_t PID_SetBaseSpeed(float value);
+uint8_t PID_SetCenterBaseSpeed(float value);
 /*读取*/
 float PID_GetKp(void);
+
+
+/*边沿pid*/
+uint8_t PID_SetEdgeBaseSpeed(float value);
+uint8_t PID_SetEKp(float value);
+uint8_t PID_SetEKi(float value);
+uint8_t PID_SetEKd(float value);
 
 typedef struct
 {

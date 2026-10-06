@@ -11,6 +11,7 @@ float angle_target_yaw;
 static uint32_t tick, left_pwm, right_pwm;
 static uint8_t raw_ir = 0x7FU, *rx_byte;
 static unsigned center_updates;
+static uint8_t center_last_bits;
 static char reply[128];
 static unsigned reply_len;
 
@@ -20,7 +21,7 @@ void PWM_RightSpeed(uint32_t speed) { right_pwm = speed; }
 uint8_t IR_Read(void) { return raw_ir; }
 uint8_t IMU_GetAngle(float *angle) { *angle = 0.0f; return 1U; }
 float IMU_WrapAngle(float angle) { return angle; }
-void PID_UpdateCenter(uint8_t bits) { (void)bits; center_updates++; left_pwm = 1420U; right_pwm = 1580U; }
+void PID_UpdateCenter(uint8_t bits) { center_last_bits = bits; center_updates++; if (bits != 0U) { left_pwm = 1420U; right_pwm = 1580U; } }
 void PID_UpdateAngle(float angle) { (void)angle; }
 void PID_UpdateRightEdge(uint8_t bits) { (void)bits; }
 void PID_ResetTurnHistory(void) {}
@@ -29,6 +30,11 @@ uint8_t PID_SetKp(float value) { (void)value; return 1U; }
 uint8_t PID_SetKi(float value) { (void)value; return 1U; }
 uint8_t PID_SetKd(float value) { (void)value; return 1U; }
 uint8_t PID_SetBaseSpeed(float value) { (void)value; return 1U; }
+uint8_t PID_SetCenterBaseSpeed(float value) { (void)value; return 1U; }
+uint8_t PID_SetEdgeBaseSpeed(float value) { (void)value; return 1U; }
+uint8_t PID_SetEKp(float value) { (void)value; return 1U; }
+uint8_t PID_SetEKi(float value) { (void)value; return 1U; }
+uint8_t PID_SetEKd(float value) { (void)value; return 1U; }
 float PID_GetKp(void) { return 0.0f; }
 void PID_GetParameters(PID_Parameters *parameters) { memset(parameters, 0, sizeof(*parameters)); }
 
@@ -54,22 +60,32 @@ int main(void)
     unsigned before;
     huart1.Instance = USART1;
     tick = 100U; Stage_Init(); UART_Init();
+    Stage_SetWaitSeconds(0U);
     command("run\n"); CHECK(Stage_GetState() == STAGE_GO);
     update_at(120U); CHECK(Stage_GetState() == STAGE_CENTER);
-    update_at(5099U); CHECK(Stage_GetState() == STAGE_CENTER);
+    update_at(1199U); CHECK(Stage_GetState() == STAGE_CENTER);
     before = center_updates;
-    update_at(5100U);
+    update_at(1200U);
     CHECK(Stage_GetState() == STAGE_CATCH && left_pwm == 1500U && right_pwm == 1500U);
-    CHECK(center_updates == before && Stage_GetElapsedSeconds() == 5U);
+    CHECK(center_updates == before && Stage_GetElapsedSeconds() == 1U);
     command("STATE?\n"); CHECK(strcmp(reply, "STATE=CATCH\r\n") == 0);
-    update_at(10099U); CHECK(Stage_GetState() == STAGE_CATCH && center_updates == before);
-    update_at(10100U); CHECK(Stage_GetState() == STAGE_CENTER && center_updates == before);
-    update_at(10120U); CHECK(Stage_GetState() == STAGE_CENTER && center_updates == before + 1U);
+    raw_ir = 0xFFU;
+    update_at(4199U); CHECK(Stage_GetState() == STAGE_CATCH && center_updates == before);
+    update_at(4200U); CHECK(Stage_GetState() == STAGE_CENTER && center_updates == before + 1U);
+    CHECK(center_last_bits == 0x18U && left_pwm == 1420U && right_pwm == 1580U);
+    update_at(4220U); CHECK(Stage_GetState() == STAGE_CENTER && center_updates == before + 2U);
+    CHECK(center_last_bits == 0U && left_pwm == 1420U && right_pwm == 1580U);
+    raw_ir = 0x7FU; update_at(4240U);
+    CHECK(Stage_GetState() == STAGE_CENTER && center_last_bits == 0x80U);
+    raw_ir = 0xFFU; update_at(4260U);
+    CHECK(Stage_GetState() == STAGE_ANGLE); /* Recovery ends on any real white sensor. */
+    Stage_SetWaitSeconds(STAGE_DEFAULT_WAIT_SECONDS);
 
     /* New run resets one-shot state; live edits retain elapsed time. */
+    raw_ir = 0x7FU;
     tick = 20000U; command("run\n"); update_at(20020U);
+    tick = 21000U; command("CatchTime=3\n"); CHECK(strstr(reply, " OK\r\n") != 0);
     update_at(22000U); CHECK(Stage_GetState() == STAGE_CENTER);
-    command("CatchTime=3\n"); CHECK(strstr(reply, " OK\r\n") != 0);
     update_at(22999U); CHECK(Stage_GetState() == STAGE_CENTER);
     update_at(23000U); CHECK(Stage_GetState() == STAGE_CATCH);
     update_at(24000U); command("CatchDuration=2\n"); CHECK(strstr(reply, " OK\r\n") != 0);
@@ -124,5 +140,15 @@ int main(void)
     command("CatchDuration=1.5\n"); CHECK(strstr(reply, " ERR\r\n") != 0);
     command("Time=1.5\n"); CHECK(strstr(reply, " ERR\r\n") != 0);
     command("SpeedTime=1.5\n"); CHECK(strstr(reply, " ERR\r\n") != 0);
+
+    /* STOP ends recovery, and a fresh run starts without the recovery flag. */
+    command("CatchTime=0\n");
+    tick = 100000U; command("run\n"); raw_ir = 0xFFU; update_at(100020U);
+    raw_ir = 0x7FU; update_at(100040U); CHECK(Stage_GetState() == STAGE_CATCH);
+    raw_ir = 0xFFU; update_at(103040U);
+    CHECK(Stage_GetState() == STAGE_CENTER && center_last_bits == 0x18U);
+    command("STOP\n"); CHECK(Stage_GetState() == STAGE_STOP && left_pwm == 1500U && right_pwm == 1500U);
+    command("run\n"); CHECK(Stage_GetState() == STAGE_GO);
+    raw_ir = 0x7FU; update_at(103060U); CHECK(Stage_GetState() == STAGE_CATCH);
     return 0;
 }

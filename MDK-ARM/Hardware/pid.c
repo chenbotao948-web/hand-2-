@@ -317,6 +317,12 @@ static void PID_ApplyTurn(float output,uint8_t kick)//因为参数不一样，�
     PWM_RightSpeed((uint32_t)(PID_STOP_US - right_output + 0.5f));
 }
 
+/**
+ * @brief（简介）pid原地旋转
+ * @param  （参数）
+ * @retval （返回值）
+ * @note  （说明）
+ */
 static void PID_UpdateTurn(float yaw)
 {
     float error;
@@ -337,7 +343,7 @@ static void PID_UpdateTurn(float yaw)
 
     /* ---------- 已经进入目标角度附近 ---------- */
 
-    if (magnitude <= turn_tol_deg)
+    if (magnitude <= turn_tol_deg)//允许误差
     {
         Car_Stop();
 
@@ -346,6 +352,7 @@ static void PID_UpdateTurn(float yaw)
          * 才认为真的转好了。
          *
          * 20ms一拍，3拍就是约60ms。
+		 对于这个没什么必要，写就写了
          */
         turn_stable_ticks++;
 
@@ -368,7 +375,7 @@ static void PID_UpdateTurn(float yaw)
     turn_stable_ticks = 0U;
 
 
-    /* ---------- I ---------- */
+    /* ---------- I ---------- 暂时没使用*/
 
     if ((turn_ki > 0.0f) &&
         (magnitude <= 15.0f))
@@ -387,7 +394,7 @@ static void PID_UpdateTurn(float yaw)
     }
 
 
-    /* ---------- D ---------- */
+    /* ---------- D ---------- 无*/
 
     if (turn_has_last_error != 0U)
     {
@@ -465,7 +472,12 @@ void PID_ResetEdgeHistory(void)
     edge_last_position = EDGE_TARGET_POSITION;
     edge_has_last_position = 0U;
 }
-
+/**
+ * @brief（简介）寻找右边沿的位置
+ * @param  （参数）传感器，位置值
+ * @retval （返回值）1代表找到了，0没找到
+ * @note  （说明）
+ */
 static uint8_t PID_FindRightEdge(uint8_t white_bits, float *position)
 {
     uint8_t left_sensor;
@@ -536,7 +548,7 @@ void PID_UpdateRightEdge(uint8_t white_bits)
          * 如果连上一次边界都没有记录，
          * 那就不知道应该往哪个方向找。
          */
-        if (edge_has_last_position == 0U)//这个参数相当于一个记录，找到了就给一。一般情况下感觉这个不会发生了
+        if (edge_has_last_position == 0U)//这个参数相当于一个记录，找到了就给1。一般情况下感觉这个不会发生了，为能找到一次就会永久给1了
         {
             return;
         }
@@ -679,7 +691,7 @@ uint8_t PID_SetKd(float value)
     return 1U;
 }
 
-uint8_t PID_SetBaseSpeed(float value)
+uint8_t PID_SetCenterBaseSpeed(float value)
 {
     if (value < 0.0f || value > PID_MAX_US)
     {
@@ -687,6 +699,64 @@ uint8_t PID_SetBaseSpeed(float value)
     }
 
     pid_base_speed_us = value;
+
+    return 1U;
+}
+
+uint8_t PID_SetEKp(float value)
+{
+    if (value < 0.0f || value > 1000.0f)
+    {
+        return 0U;
+    }
+
+    edge_kp = value;
+
+    PID_ResetEdgePidHistory();
+
+    return 1U;
+}
+
+
+
+
+uint8_t PID_SetEKi(float value)
+{
+    if (value < 0.0f || value > 1000.0f)
+    {
+        return 0U;
+    }
+
+    edge_ki = value;
+
+    PID_ResetEdgePidHistory();
+
+    return 1U;
+}
+
+
+uint8_t PID_SetEKd(float value)
+{
+    if (value < 0.0f || value > 1000.0f)
+    {
+        return 0U;
+    }
+
+    edge_kd = value;
+
+    PID_ResetEdgePidHistory();
+
+    return 1U;
+}
+
+uint8_t PID_SetEdgeBaseSpeed(float value)
+{
+    if (value < 0.0f || value > PID_MAX_US)
+    {
+        return 0U;
+    }
+
+    edge_base_speed_us = value;
 
     return 1U;
 }

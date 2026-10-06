@@ -15,8 +15,9 @@ uint8_t white_bits;//当前灰度
 static volatile uint32_t run_start_tick;
 static volatile uint8_t run_timer_active;
 static volatile uint8_t catch_flag;
+static volatile uint8_t catch_reacquiring_line;
 static volatile uint32_t catch_start_tick;//抓取开始那一刻的时间，不用改，主要后面两个
-static volatile uint32_t catch_entry_ms = (uint32_t)STAGE_DEFAULT_CATCH_TIME_SECONDS * 1000U;//什么时候开始抓取
+static volatile uint32_t catch_entry_ms = STAGE_DEFAULT_CATCH_TIME_MS;//什么时候开始抓取,这里单位是ms要注意
 static volatile uint16_t catch_duration_seconds = STAGE_DEFAULT_CATCH_DURATION_SECONDS;//抓取持续时间
 
 static volatile uint8_t time_gate_unlocked;
@@ -44,9 +45,10 @@ void  Stage_Init(void)
 	time_gate_unlocked = 0U;
 	angle_wait_seconds = STAGE_DEFAULT_WAIT_SECONDS;
 	center_slowdown_seconds = STAGE_DEFAULT_SPEED_TIME_SECONDS;
-	catch_entry_ms = (uint32_t)STAGE_DEFAULT_CATCH_TIME_SECONDS * 1000U;
+	catch_entry_ms = STAGE_DEFAULT_CATCH_TIME_MS;
 	catch_duration_seconds = STAGE_DEFAULT_CATCH_DURATION_SECONDS;
 	catch_flag = 0U;
+	catch_reacquiring_line = 0U;
 	catch_start_tick = 0U;
 	IMU_GetAngle(&first_yaw);
 	first_yaw=IMU_WrapAngle(first_yaw);
@@ -59,6 +61,10 @@ void  Stage_Update(void)
 	/* IR_Read: black=1, white=0. Use one sample for this control tick. */
 	raw_ir = IR_Read();
 	white_bits = (uint8_t)~raw_ir;
+	if ((catch_reacquiring_line != 0U) && (white_bits != 0U))
+	{
+		catch_reacquiring_line = 0U;
+	}
 	//这里搞了一个标志位
 	if ((run_timer_active != 0U) && (time_gate_unlocked == 0U) &&
 	    ((uint32_t)(HAL_GetTick() - run_start_tick) >=
@@ -66,9 +72,11 @@ void  Stage_Update(void)
 	{
 		time_gate_unlocked = 1U;
 	}
+	
 	IMU_GetAngle(&now_yaw);
 	now_yaw=IMU_WrapAngle(now_yaw);
 	delta_yaw = IMU_WrapAngle(now_yaw - first_yaw);
+	
 	if(current_stage==STAGE_GO)//一开始没有线，所以要先出发一会儿，等到找到线了，我们就切换下一个状态。
     {
     PWM_LeftSpeed(1420);
@@ -91,6 +99,7 @@ void  Stage_Update(void)
 
 	if((current_stage==STAGE_CENTER) && (run_timer_active != 0U) &&
 	   (time_gate_unlocked != 0U) &&
+	   (catch_reacquiring_line == 0U) &&
 	   (delta_yaw >= -angle_right_deg) && (delta_yaw <= angle_left_deg) &&
 	   (raw_ir == 0xFFU))//如果上一个状态是中心检测角度在误差的容忍状态之内，识别到的的线就是全黑，时间也允许
     {
@@ -107,11 +116,11 @@ void  Stage_Update(void)
             ((uint32_t)(HAL_GetTick() - run_start_tick) >=
              (uint32_t)center_slowdown_seconds * 1000U))
         {
-            (void)PID_SetBaseSpeed(50.0f);//什么时候减速
+            (void)PID_SetCenterBaseSpeed(50.0f);//什么时候减速
         }
         else
         {
-            (void)PID_SetBaseSpeed(80.0f);
+            (void)PID_SetCenterBaseSpeed(80.0f);
         }
         PID_UpdateCenter(white_bits);
 		return;
@@ -119,10 +128,29 @@ void  Stage_Update(void)
 	
 		if(current_stage==STAGE_CATCH)//拾取状态
     {
+	/*
+	
+	拾取放在这里
+	
+	
+	
+	*/
 		if ((uint32_t)(HAL_GetTick() - catch_start_tick) >=
-		    (uint32_t)catch_duration_seconds * 1000U)
+		    (uint32_t)catch_duration_seconds * 1000U)//时间比较
 		{
 			Stage_SetState(STAGE_CENTER);
+			catch_reacquiring_line = (raw_ir == 0xFFU) ? 1U : 0U;//成立取1，不成立取0
+			if ((run_timer_active != 0U) &&
+			    ((uint32_t)(HAL_GetTick() - run_start_tick) >=
+			     (uint32_t)center_slowdown_seconds * 1000U))
+			{
+				(void)PID_SetCenterBaseSpeed(50.0f);
+			}
+			else
+			{
+				(void)PID_SetCenterBaseSpeed(80.0f);
+			}
+			PID_UpdateCenter((catch_reacquiring_line != 0U) ? 0x18U : white_bits);//跟上面联动，如果进入小黑圈的话，没看到线先直走
 		}
 		return;
     }
@@ -152,6 +180,7 @@ void  Stage_Update(void)
 /*通过函数来修改别的文件的参数，而不使用全局变量。*/
 void Stage_SetState(Stage_State state)
 {
+	catch_reacquiring_line = 0U;
     /* 已经是这个状态，就不用重复初始化 */
     if (state == current_stage)
     {
@@ -239,6 +268,7 @@ Stage_State Stage_GetState(void)
 void Stage_StartRun(void)
 {
 	uint32_t key = Stage_Lock();
+	catch_reacquiring_line = 0U;
 	run_start_tick = HAL_GetTick();
 	run_timer_active = 1U;
 	time_gate_unlocked = (angle_wait_seconds == 0U) ? 1U : 0U;
@@ -255,6 +285,7 @@ void Stage_StartRun(void)
 void Stage_ResetRunTimer(void)
 {
 	uint32_t key = Stage_Lock();
+	catch_reacquiring_line = 0U;
 	run_timer_active = 0U;
 	time_gate_unlocked = 0U;
 	Stage_Unlock(key);

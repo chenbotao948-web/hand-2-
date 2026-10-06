@@ -121,11 +121,11 @@ static void UART_ProcessLine(char *line)
 
 	/* SpeedTime= 调整 run 后 CENTER 的减速秒数；Time= 仍控制阶段切换。 */
 	else if (strncmp(line, "SpeedTime=", 10) == 0)
-{
+	{
     success = UART_ParseTimeSeconds(line + 10, &seconds);
     if (success != 0U) success = Stage_SetSpeedTimeSeconds(seconds);
     UART_SendResult(line, success);
-}
+	}
 	else if (strncmp(line, "CatchTime=", 10) == 0)
 	{
 		success = UART_ParseCatchTimeMilliseconds(line + 10, &catch_time_ms);
@@ -181,20 +181,68 @@ static void UART_ProcessLine(char *line)
 	
 		UART_SendResult(line, success);
 	}
-
-		/* Base= 在 CENTER 中会被定时速度 80/50 于下一个控制周期覆盖。 */
-		else if (strncmp(line, "Base=", 5) == 0)
+	
+		else if (strncmp(line, "Ekp=", 4) == 0)
 	{
-		success = UART_ParseFloat(line + 5, &value);
+		success = UART_ParseFloat(line + 4, &value);
 	
 		if (success != 0U)
 		{
-			success = PID_SetBaseSpeed(value);
+			success = PID_SetEKp(value);
+		}
+	
+		UART_SendResult(line, success);
+	}
+
+
+	else if (strncmp(line, "Eki=", 4) == 0)
+	{
+		success = UART_ParseFloat(line + 4, &value);//注意这里的返回值
+	
+		if (success != 0U)
+		{
+			success = PID_SetEKi(value);
+		}
+	
+		UART_SendResult(line, success);
+	}
+
+
+		else if (strncmp(line, "Ekd=", 4) == 0)
+	{
+		success = UART_ParseFloat(line + 4, &value);
+	
+		if (success != 0U)
+		{
+			success = PID_SetEKd(value);
+		}
+	
+		UART_SendResult(line, success);
+	}
+		/* Base= 在 CENTER 中会被定时速度 80/50 于下一个控制周期覆盖。 */
+		else if (strncmp(line, "CenterBase=", 11) == 0)
+	{
+		success = UART_ParseFloat(line + 11, &value);
+	
+		if (success != 0U)
+		{
+			success = PID_SetCenterBaseSpeed(value);
 		}
 	
 		UART_SendResult(line, success);
 	}
 	
+		else if (strncmp(line, "EdgeBase=", 9) == 0)
+	{
+		success = UART_ParseFloat(line + 9, &value);
+	
+		if (success != 0U)
+		{
+			success = PID_SetEdgeBaseSpeed(value);
+		}
+	
+		UART_SendResult(line, success);
+	}	
 	else if (strcmp(line, "Kp?") == 0)
 {
     float kp;
