@@ -515,6 +515,29 @@ void PID_UpdateRightEdge(uint8_t white_bits)
 
 
     /* --------------------------------------------------
+       情况0：最右两路为白，优先追右侧白线
+       必须先于目标位置判断，避免左侧另一段白线抢走控制
+       -------------------------------------------------- */
+    if ((white_bits & 0x03U) == 0x03U)
+    {
+        PID_ResetEdgePidHistory();
+
+        /* 8.5 是第8路右侧的虚拟边界位置，并非实测位置。 */
+        edge_last_position = 8.5f;
+        edge_has_last_position = 1U;
+
+        error = EDGE_TARGET_POSITION - edge_last_position;
+        correction = kp * error;
+        correction = PID_Limit(correction, -PID_MAX_US, PID_MAX_US);
+
+        PID_ApplyForward(base_speed - correction,
+                         base_speed + correction);
+
+        return;
+    }
+
+
+    /* --------------------------------------------------
        情况1：边界正好在目标位置
        第4、5路看到白色，第6路为黑色
        -------------------------------------------------- */

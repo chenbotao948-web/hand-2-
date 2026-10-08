@@ -82,7 +82,7 @@ static void UART_ProcessLine(char *line)
     uint8_t success;
     uint16_t seconds;
     uint32_t catch_time_ms;
-    if (strcmp(line, "run") == 0)
+    if (strcmp(line, "run") == 0)//ÆðÅÜ
     {
         Stage_StartRun();
         UART_SendString("RUN OK\r\n");
